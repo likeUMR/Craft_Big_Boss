@@ -32,10 +32,22 @@ const Game: React.FC = () => {
   
   // 动态计算缩放比例
   const [dimensions, setDimensions] = useState(() => {
-    const width = window.innerWidth;
-    const height = window.innerHeight;
-    const scale = width / BASE_WIDTH;
-    return { width, height, scale };
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+    
+    // 强制左右顶满（移动端或窄屏）
+    let gameWidth = screenWidth;
+    
+    // 如果是桌面端（极宽屏），可以适当限制宽度以防过于夸张
+    if (screenWidth > 600) {
+      gameWidth = Math.min(500, screenWidth * 0.9);
+    }
+
+    // 根据宽度计算高度，严格保持 500:800 比例
+    const gameHeight = gameWidth * (BASE_HEIGHT / BASE_WIDTH);
+    const scale = gameWidth / BASE_WIDTH;
+    
+    return { width: gameWidth, height: gameHeight, scale, screenWidth, screenHeight };
   });
 
   // 根据缩放比例动态生成配置
@@ -47,7 +59,7 @@ const Game: React.FC = () => {
   const fruitImages = useRef<Map<string, HTMLImageElement>>(new Map());
   const isDropping = useRef(false);
   const currentFruitBody = useRef<Matter.Body | null>(null);
-  const gameOverLineY = 200 * dimensions.scale; // 判定线也随比例缩放
+  const gameOverLineY = 150 * dimensions.scale; // 稍微调高一点死亡线
   const fruitStayAboveLine = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
@@ -59,10 +71,20 @@ const Game: React.FC = () => {
     };
 
     const handleResize = () => {
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const scale = width / BASE_WIDTH;
-      setDimensions({ width, height, scale });
+      const screenWidth = window.innerWidth;
+      const screenHeight = window.innerHeight;
+      
+      // 彻底去掉 600px 限制，始终让宽度顶满屏幕
+      let gameWidth = screenWidth;
+      
+      // 只有在屏幕宽度超过 800px 时才限制一个最大宽度，否则在手机上永远是 100%
+      if (screenWidth > 800) {
+        gameWidth = Math.min(600, screenWidth * 0.95);
+      }
+
+      const gameHeight = gameWidth * (BASE_HEIGHT / BASE_WIDTH);
+      const scale = gameWidth / BASE_WIDTH;
+      setDimensions({ width: gameWidth, height: gameHeight, scale, screenWidth, screenHeight });
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -73,7 +95,7 @@ const Game: React.FC = () => {
     
     // 初始化引擎
     const engine = Matter.Engine.create({
-      gravity: { y: 1.5 * scale }, // 重力也随比例缩放，保证物理感一致
+      gravity: { y: 1.5 * scale }, // 重力也随比例缩放
       positionIterations: 10,
       velocityIterations: 10
     });
@@ -118,7 +140,7 @@ const Game: React.FC = () => {
       bodies.forEach(body => {
         if (body.label.startsWith('fruit_')) {
           const index = parseInt(body.label.split('_')[1]);
-          const config = FRUIT_CONFIG[index];
+          const config = fruitConfig[index];
           const { x, y } = body.position;
           const angle = body.angle;
 
@@ -129,7 +151,7 @@ const Game: React.FC = () => {
           context.textBaseline = 'middle';
 
           // 如果是最后一个等级（刘院长），绘制图片
-          if (index === FRUIT_CONFIG.length - 1) {
+          if (index === fruitConfig.length - 1) {
             const img = fruitImages.current.get('tie_yan');
             if (img && img.complete) { // 增加 complete 检查
               context.drawImage(img, -config.radius, -config.radius, config.radius * 2, config.radius * 2);
@@ -152,10 +174,10 @@ const Game: React.FC = () => {
       if (currentFruitBody.current && !isDropping.current && !gameOver) {
         const { x } = currentFruitBody.current.position;
         context.beginPath();
-        context.moveTo(x, 100);
+        context.moveTo(x, 100 * scale);
         context.lineTo(x, height);
         context.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-        context.setLineDash([5, 10]);
+        context.setLineDash([5 * scale, 10 * scale]);
         context.stroke();
         context.setLineDash([]);
       }
@@ -174,7 +196,7 @@ const Game: React.FC = () => {
 
         if (bodyA.label === bodyB.label && bodyA.label.startsWith('fruit_')) {
           const level = parseInt(bodyA.label.split('_')[1]);
-          if (level < FRUIT_CONFIG.length - 1) {
+          if (level < fruitConfig.length - 1) {
             if (bodyA.isStatic || bodyB.isStatic) return;
             
             processedCollisions.add(collisionId);
@@ -191,11 +213,11 @@ const Game: React.FC = () => {
             // 更新最高等级记录
             setMaxFruitLevel(prev => Math.max(prev, newLevel));
             
-            createParticles(x, y, FRUIT_CONFIG[level].color);
-            setScore((prev) => prev + FRUIT_CONFIG[newLevel].score);
+            createParticles(x, y, fruitConfig[level].color);
+            setScore((prev) => prev + fruitConfig[newLevel].score);
 
             // 胜利判定：合成出最后一个等级
-            if (newLevel === FRUIT_CONFIG.length - 1) {
+            if (newLevel === fruitConfig.length - 1) {
               setGameWin(true);
             }
 
@@ -220,7 +242,7 @@ const Game: React.FC = () => {
       for (const body of allBodies) {
         if (!body.isStatic && body.label.startsWith('fruit_')) {
           const index = parseInt(body.label.split('_')[1]);
-          const radius = FRUIT_CONFIG[index].radius;
+          const radius = fruitConfig[index].radius;
           
           // 只要水果的顶部超过了死亡线，且速度较慢（判定为堆积而非刚落下）
           if (body.position.y - radius < gameOverLineY && body.velocity.y < 0.2) {
@@ -251,20 +273,21 @@ const Game: React.FC = () => {
       Matter.Engine.clear(engine);
       render.canvas.remove();
     };
-  }, [dimensions.width, dimensions.height]); // 当尺寸变化时重新初始化
+  }, [dimensions.width, dimensions.height, dimensions.scale]); // 增加 scale 依赖
 
   const createParticles = (x: number, y: number, color: string) => {
     if (!engineRef.current) return;
+    const { scale } = dimensions;
     const particles: Matter.Body[] = [];
     for (let i = 0; i < 8; i++) {
-      const particle = Matter.Bodies.circle(x, y, 5, {
+      const particle = Matter.Bodies.circle(x, y, 5 * scale, {
         render: { fillStyle: color },
         frictionAir: 0.05,
         collisionFilter: { group: -1 }
       });
       Matter.Body.setVelocity(particle, {
-        x: (Math.random() - 0.5) * 10,
-        y: (Math.random() - 0.5) * 10
+        x: (Math.random() - 0.5) * 10 * scale,
+        y: (Math.random() - 0.5) * 10 * scale
       });
       particles.push(particle);
       setTimeout(() => {
@@ -277,14 +300,14 @@ const Game: React.FC = () => {
   };
 
   const createFruit = (x: number, y: number, index: number, isStatic = false) => {
-    const config = FRUIT_CONFIG[index];
+    const config = fruitConfig[index];
     return Matter.Bodies.circle(x, y, config.radius, {
       label: `fruit_${index}`,
       restitution: 0.3,    // 保持一定的弹性
       friction: 0.2,       // 增加摩擦力，减少滑动导致的重叠
       frictionStatic: 0.5,    // 增加静态摩擦力，让堆叠更稳
       frictionAir: 0.015,  // 稍微增加空气阻力，让水果更快静止，减少震荡侵入
-      slop: 0.01,          // 减小允许的重叠值，使水果看起来更硬
+      slop: 0.01 * dimensions.scale,          // 减小允许的重叠值，使水果看起来更硬
       isStatic: isStatic,
       render: { fillStyle: config.color },
     });
@@ -297,12 +320,12 @@ const Game: React.FC = () => {
     if (!rect) return;
     
     let x = e.clientX - rect.left;
-    const radius = FRUIT_CONFIG[currentFruitIndex].radius;
+    const radius = fruitConfig[currentFruitIndex].radius;
     x = Math.max(radius, Math.min(dimensions.width - radius, x));
     
     // 按下时立即生成水果
     if (!currentFruitBody.current) {
-      const fruit = createFruit(x, 100, currentFruitIndex, true);
+      const fruit = createFruit(x, 100 * dimensions.scale, currentFruitIndex, true);
       currentFruitBody.current = fruit;
       Matter.World.add(engineRef.current!.world, fruit);
     }
@@ -313,14 +336,14 @@ const Game: React.FC = () => {
     const rect = sceneRef.current?.getBoundingClientRect();
     if (!rect) return;
     let x = e.clientX - rect.left;
-    const radius = FRUIT_CONFIG[currentFruitIndex].radius;
+    const radius = fruitConfig[currentFruitIndex].radius;
     x = Math.max(radius, Math.min(dimensions.width - radius, x));
     if (!currentFruitBody.current) {
-      const fruit = createFruit(x, 100, currentFruitIndex, true);
+      const fruit = createFruit(x, 100 * dimensions.scale, currentFruitIndex, true);
       currentFruitBody.current = fruit;
       Matter.World.add(engineRef.current!.world, fruit);
     } else {
-      Matter.Body.setPosition(currentFruitBody.current, { x, y: 100 });
+      Matter.Body.setPosition(currentFruitBody.current, { x, y: 100 * dimensions.scale });
     }
   };
 
@@ -349,68 +372,134 @@ const Game: React.FC = () => {
 
   return (
     <div 
-      className="game-container" 
-      style={{ position: 'relative', width: dimensions.width, height: dimensions.height }}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
+      className="main-wrapper"
+      style={{
+        width: '100%',
+        height: '100vh',
+        position: 'relative',
+        overflow: 'hidden',
+        background: '#ffe8ad',
+        display: 'flex',
+        flexDirection: 'column',
+        margin: 0,
+        padding: 0
+      }}
     >
       <style>
         {`
+          body { 
+            background-color: #ffe8ad; 
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            touch-action: none;
+            width: 100%;
+            height: 100%;
+          } 
           @keyframes popIn {
             0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
             100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
           }
+          .score-board, .next-fruit, .tutorial-overlay, .game-over {
+            transform-origin: center;
+          }
+          * {
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+          }
+          canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+          }
         `}
       </style>
-      <div className="score-board" style={{
+
+      {/* 顶部 UI 区域 */}
+      <div className="top-ui" style={{
         position: 'absolute',
-        top: 20,
-        left: 20,
-        color: '#333',
-        fontSize: '24px',
-        fontWeight: 'bold',
-        zIndex: 10,
-        pointerEvents: 'none',
-        textShadow: '1px 1px 2px white'
-      }}>
-        得分: {score}
-        {/* 常驻显示合成顺序 */}
-        <div className="sequence-display" style={{
-          marginTop: '10px',
-          display: 'flex',
-          flexWrap: 'wrap', // 支持换行
-          alignItems: 'center',
-          background: 'rgba(255, 255, 255, 0.5)',
-          padding: '5px 10px',
-          borderRadius: '10px',
-          fontSize: '18px', // 稍微调大一点字体，因为换行了
-          width: '270px', // 限制宽度强制换行
-          gap: '2px'
-        }}>
-          {FRUIT_CONFIG.map((f, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-              <span>{i === FRUIT_CONFIG.length - 1 ? '刘' : f.emoji}</span>
-              {i < FRUIT_CONFIG.length - 1 && <span style={{ margin: '0 1px', opacity: 0.5 }}>→</span>}
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="next-fruit" style={{
-        position: 'absolute',
-        top: 20,
-        right: 20,
-        textAlign: 'center',
-        background: 'rgba(255, 255, 255, 0.5)',
-        padding: '10px',
-        borderRadius: '10px',
+        top: 0,
+        left: 0,
+        width: '100%',
+        padding: `${15 * dimensions.scale}px`,
+        boxSizing: 'border-box',
         zIndex: 10,
         pointerEvents: 'none'
       }}>
-        <div style={{ fontSize: '14px', color: '#666' }}>下一个</div>
-        <div style={{ fontSize: '30px' }}>{FRUIT_CONFIG[nextFruitIndex].emoji}</div>
+        <div className="score-board" style={{
+          position: 'absolute',
+          top: `${20 * dimensions.scale}px`,
+          left: `${20 * dimensions.scale}px`,
+          color: '#333',
+          fontSize: `${32 * dimensions.scale}px`,
+          fontWeight: 'bold',
+          textShadow: '1px 1px 2px white'
+        }}>
+          得分: {score}
+          {/* 常驻显示合成顺序 */}
+          <div className="sequence-display" style={{
+            marginTop: `${12 * dimensions.scale}px`,
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            background: 'rgba(255, 255, 255, 0.75)',
+            padding: `${8 * dimensions.scale}px ${15 * dimensions.scale}px`,
+            borderRadius: `${12 * dimensions.scale}px`,
+            fontSize: `${16 * dimensions.scale}px`,
+            width: `${280 * dimensions.scale}px`,
+            gap: `${4 * dimensions.scale}px`,
+            border: '1px solid rgba(0,0,0,0.1)',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.08)'
+          }}>
+            {fruitConfig.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
+                <span style={{ fontSize: `${20 * dimensions.scale}px` }}>{i === fruitConfig.length - 1 ? '刘' : f.emoji}</span>
+                {i < fruitConfig.length - 1 && <span style={{ margin: `0 ${2 * dimensions.scale}px`, opacity: 0.3, fontSize: `${14 * dimensions.scale}px` }}>→</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="next-fruit" style={{
+          position: 'absolute',
+          top: `${20 * dimensions.scale}px`,
+          right: `${20 * dimensions.scale}px`,
+          textAlign: 'center',
+          background: 'rgba(255, 255, 255, 0.75)',
+          padding: `${12 * dimensions.scale}px`,
+          borderRadius: `${15 * dimensions.scale}px`,
+          border: '1px solid rgba(0,0,0,0.1)',
+          boxShadow: '0 4px 10px rgba(0,0,0,0.08)',
+          minWidth: `${60 * dimensions.scale}px`
+        }}>
+          <div style={{ fontSize: `${20 * dimensions.scale}px`, color: '#666', marginBottom: `${4 * dimensions.scale}px` }}>下一个</div>
+          <div style={{ fontSize: `${60 * dimensions.scale}px`, lineHeight: 1 }}>{fruitConfig[nextFruitIndex].emoji}</div>
+        </div>
       </div>
-      <div ref={sceneRef} />
+
+      {/* 底部游戏区域 */}
+      <div 
+        className="game-container" 
+        style={{ 
+          position: 'absolute', 
+          bottom: 0,
+          left: 0,
+          width: '100%', 
+          height: dimensions.height,
+          overflow: 'hidden',
+          background: '#ffe8ad',
+          // 只有在非顶满宽度时才居中（桌面端）
+          display: 'flex',
+          justifyContent: 'center'
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+      >
+        <div ref={sceneRef} style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }} />
+      </div>
       
       {showTutorial && (
         <div className="tutorial-overlay" style={{
@@ -426,42 +515,42 @@ const Game: React.FC = () => {
           justifyContent: 'center',
           alignItems: 'center',
           zIndex: 200,
-          padding: '20px',
+          padding: `${20 * dimensions.scale}px`,
           boxSizing: 'border-box'
         }}>
-          <h2 style={{ color: '#ffcc00', marginBottom: '20px' }}>终极目标：合成刘院长</h2>
-          <ul style={{ textAlign: 'left', lineHeight: '1.8' }}>
+          <h2 style={{ color: '#ffcc00', marginBottom: `${20 * dimensions.scale}px`, fontSize: `${24 * dimensions.scale}px` }}>终极目标：合成刘院长</h2>
+          <ul style={{ textAlign: 'left', lineHeight: '1.8', fontSize: `${16 * dimensions.scale}px` }}>
             <li>左右滑动：选择位置</li>
             <li>抬起手指：让其掉落</li>
             <li>相同水果碰撞：合成更高级水果</li>
             <li>注意：不要超过红色虚线！</li>
           </ul>
-          <h3>合成顺序</h3>
+          <h3 style={{ fontSize: `${18 * dimensions.scale}px` }}>合成顺序</h3>
           <div style={{ 
             display: 'flex', 
             flexWrap: 'wrap', 
             justifyContent: 'center', 
-            gap: '10px',
+            gap: `${10 * dimensions.scale}px`,
             background: 'rgba(255,255,255,0.1)',
-            padding: '15px',
-            borderRadius: '10px',
-            marginBottom: '20px'
+            padding: `${15 * dimensions.scale}px`,
+            borderRadius: `${10 * dimensions.scale}px`,
+            marginBottom: `${20 * dimensions.scale}px`
           }}>
-            {FRUIT_CONFIG.map((f, i) => (
+            {fruitConfig.map((f, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ fontSize: '20px' }}>{i === FRUIT_CONFIG.length - 1 ? '刘院长' : f.emoji}</span>
-                {i < FRUIT_CONFIG.length - 1 && <span style={{ marginLeft: '5px', opacity: 0.5 }}>→</span>}
+                <span style={{ fontSize: `${20 * dimensions.scale}px` }}>{i === fruitConfig.length - 1 ? '刘院长' : f.emoji}</span>
+                {i < fruitConfig.length - 1 && <span style={{ marginLeft: `${5 * dimensions.scale}px`, opacity: 0.5 }}>→</span>}
               </div>
             ))}
           </div>
           <button 
             onClick={() => setShowTutorial(false)}
             style={{
-              padding: '12px 40px',
-              fontSize: '18px',
+              padding: `${12 * dimensions.scale}px ${40 * dimensions.scale}px`,
+              fontSize: `${18 * dimensions.scale}px`,
               backgroundColor: '#ffcc00',
               border: 'none',
-              borderRadius: '25px',
+              borderRadius: `${25 * dimensions.scale}px`,
               color: '#333',
               fontWeight: 'bold',
               cursor: 'pointer'
@@ -477,7 +566,7 @@ const Game: React.FC = () => {
           position: 'absolute',
           top: '50%',
           left: '50%',
-          transform: 'translate(-50%, -50%)',
+          transform: `translate(-50%, -50%) scale(${dimensions.scale})`,
           background: 'rgba(255, 215, 0, 0.95)',
           color: '#333',
           padding: '30px',
@@ -527,7 +616,7 @@ const Game: React.FC = () => {
           position: 'absolute',
           top: '50%',
           left: '50%',
-          transform: 'translate(-50%, -50%)',
+          transform: `translate(-50%, -50%) scale(${dimensions.scale})`,
           background: 'rgba(220, 53, 69, 0.95)',
           color: 'white',
           padding: '30px',
