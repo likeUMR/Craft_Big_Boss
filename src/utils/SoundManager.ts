@@ -198,12 +198,14 @@ class SoundManager {
     this.init();
     if (!this.ctx || !this.masterGain) return;
 
-    const now = this.ctx.currentTime;
+    const ctx = this.ctx;
+    const masterGain = this.masterGain;
+    const now = ctx.currentTime;
     const notes = [523.25, 659.25, 783.99, 1046.50]; 
     
     notes.forEach((freq, i) => {
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
       
       osc.type = 'sine';
       osc.frequency.setValueAtTime(freq, now + i * 0.1);
@@ -212,7 +214,7 @@ class SoundManager {
       gain.gain.exponentialRampToValueAtTime(0.01, now + i * 0.1 + 0.4);
       
       osc.connect(gain);
-      gain.connect(this.masterGain!);
+      gain.connect(masterGain);
       
       osc.start(now + i * 0.1);
       osc.stop(now + i * 0.1 + 0.4);

@@ -44,10 +44,10 @@ const Game: React.FC = () => {
   const [gameOver, setGameOver] = useState(false);
   const [gameWin, setGameWin] = useState(false);
   const [showTutorial, setShowTutorial] = useState(true);
-  const [maxFruitLevel, setMaxFruitLevel] = useState(0);
   const maxFruitLevelRef = useRef(0);
 
   // 导师分配逻辑
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [assignedMentors, setAssignedMentors] = useState<Mentor[]>(() => {
     const allMentors: Mentor[] = mentorsData as Mentor[];
     const liuTieyan = allMentors.find(m => m.name === '刘铁岩');
@@ -358,11 +358,7 @@ const Game: React.FC = () => {
             Matter.World.add(engine.world, newFruit);
             
             // 更新最高等级记录
-            setMaxFruitLevel(prev => {
-              const max = Math.max(prev, newLevel);
-              maxFruitLevelRef.current = max;
-              return max;
-            });
+            maxFruitLevelRef.current = Math.max(maxFruitLevelRef.current, newLevel);
             
             createParticles(x, y, fruitConfig[level].color);
             setScore((prev) => prev + fruitConfig[newLevel].score);
