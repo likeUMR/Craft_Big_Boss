@@ -64,6 +64,7 @@ const Game: React.FC = () => {
   const sceneRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<Matter.Engine | null>(null);
   const renderRef = useRef<Matter.Render | null>(null);
+  const runnerRef = useRef<Matter.Runner | null>(null);
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
   const [gameWin, setGameWin] = useState(false);
@@ -262,7 +263,7 @@ const Game: React.FC = () => {
     
     // 初始化引擎
     const engine = Matter.Engine.create({
-      gravity: { y: 1.5 * scale }, // 重力也随比例缩放
+      gravity: { y: 1.05 * scale }, // 将重力减慢至 70% (1.5 * 0.7 = 1.05)
       positionIterations: 10,
       velocityIterations: 10
     });
@@ -277,6 +278,7 @@ const Game: React.FC = () => {
         height: height,
         wireframes: false,
         background: '#ffe8ad',
+        pixelRatio: window.devicePixelRatio || 1
       },
     });
     renderRef.current = render;
@@ -292,6 +294,10 @@ const Game: React.FC = () => {
     Matter.Events.on(render, 'afterRender', () => {
       const context = render.context;
       const now = Date.now();
+      
+      // 设置图像平滑
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
       
       // 1. 失败检测与烧条逻辑更新
       let currentProgress = 0;
@@ -331,6 +337,13 @@ const Game: React.FC = () => {
             burningStartTime.current = null;
             soundManager.stopWarning();
           }
+        }
+      } else if (gameWin) {
+        // 胜利后确保停止警告音并重置燃烧状态
+        if (isBurning.current) {
+          isBurning.current = false;
+          burningStartTime.current = null;
+          soundManager.stopWarning();
         }
       }
 
@@ -473,10 +486,17 @@ const Game: React.FC = () => {
             createParticles(x, y, fruitConfig[level].color);
             setScore((prev) => prev + fruitConfig[newLevel].score);
 
+            console.log(`合成成功: 等级 ${level} -> ${newLevel} (${fruitConfig[newLevel].name})`);
+
             // 胜利判定：合成出最后一个等级
             if (newLevel === fruitConfig.length - 1) {
+              console.log('触发胜利判定！当前 newLevel:', newLevel, '最高等级:', fruitConfig.length - 1);
               setGameWin(true);
               soundManager.playWin();
+              soundManager.stopWarning();
+              if (runnerRef.current) {
+                Matter.Runner.stop(runnerRef.current);
+              }
             }
 
             // 清理已处理的碰撞对 ID
@@ -489,11 +509,46 @@ const Game: React.FC = () => {
     // 暴露测试命令到全局
     (window as any).winGame = () => {
       setGameWin(true);
+      soundManager.playWin();
+      soundManager.stopWarning();
+      if (runnerRef.current) {
+        Matter.Runner.stop(runnerRef.current);
+      }
       console.log("测试命令：游戏胜利！");
+    };
+
+    (window as any).spawnTestMentors = () => {
+      if (!engineRef.current) return;
+      if (gameWin || gameOver) return;
+      const x = dimensions.width / 2;
+      const y = dimensions.height / 2;
+      const level = fruitConfig.length - 2; // 次高级 (等级 8)
+      const fruit1 = createFruit(x - 50, y, level);
+      const fruit2 = createFruit(x + 50, y, level);
+      Matter.World.add(engineRef.current.world, [fruit1, fruit2]);
+      console.log(`已生成两个${fruitConfig[level].name}，快去合成刘铁岩吧！`);
+    };
+
+    (window as any).spawnLiuTieyan = () => {
+      if (!engineRef.current) return;
+      const x = dimensions.width / 2;
+      const y = dimensions.height / 2;
+      const level = fruitConfig.length - 1; // 最高级 (等级 9)
+      const fruit = createFruit(x, y, level);
+      Matter.World.add(engineRef.current.world, fruit);
+      console.log(`已生成${fruitConfig[level].name}！`);
+      // 直接生成刘铁岩也应该触发胜利
+      setGameWin(true);
+      soundManager.playWin();
+      soundManager.stopWarning();
+      if (runnerRef.current) {
+        Matter.Runner.stop(runnerRef.current);
+      }
     };
 
     // 运行
     const runner = Matter.Runner.create();
+    runnerRef.current = runner;
     Matter.Runner.run(runner, engine);
     Matter.Render.run(render);
 
@@ -835,7 +890,7 @@ const Game: React.FC = () => {
                 🎉 您已通关！
               </div>
               <div style={{ fontSize: `${14 * dimensions.scale}px`, color: '#eee' }}>
-                通关时间：{existingRecord.created_at}<br/>
+                通关时间：{new Date(new Date(existingRecord.created_at).getTime() + 8 * 60 * 60 * 1000).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')}<br/>
                 当前排名：第 {existingRecord.rank} 名
               </div>
               <div style={{ fontSize: `${12 * dimensions.scale}px`, color: '#aaa', marginTop: '8px' }}>
@@ -847,7 +902,7 @@ const Game: React.FC = () => {
           <ul style={{ textAlign: 'left', lineHeight: '1.8', fontSize: `${16 * dimensions.scale}px` }}>
             <li>左右滑动：选择位置</li>
             <li>抬起手指：让其掉落</li>
-            <li>相同导师碰撞：合成更高级导师</li>
+            <li>相同导师碰撞：合成更多导师</li>
             <li>注意：不要超过红色虚线！</li>
           </ul>
           <h3 style={{ fontSize: `${18 * dimensions.scale}px`, marginTop: `${10 * dimensions.scale}px` }}>合成顺序</h3>
