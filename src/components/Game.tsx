@@ -1,23 +1,40 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Matter from 'matter-js';
 import { soundManager } from '../utils/SoundManager';
+import mentorsData from '../data/mentors.json';
+
+interface Mentor {
+  name: string;
+  avatar: string;
+  homepage: string;
+}
 
 const BASE_WIDTH = 500;
-const BASE_HEIGHT = 800; // 设定一个基准高度比例
+const BASE_HEIGHT = 800;
+const TOTAL_LEVELS = 10; // 最高级别设置
 
-const FRUIT_CONFIG_BASE = [
-  { name: '山竹', radius: 15, color: '#ff0000', score: 1, emoji: '🫐' },
-  { name: '樱桃', radius: 25, color: '#ff4d4d', score: 2, emoji: '🍒' },
-  { name: '橘子', radius: 35, color: '#ffa500', score: 4, emoji: '🍊' },
-  { name: '柠檬', radius: 45, color: '#ffff00', score: 8, emoji: '🍋' },
-  { name: '猕猴桃', radius: 55, color: '#00ff00', score: 16, emoji: '🥝' },
-  { name: '西红柿', radius: 70, color: '#ff6347', score: 32, emoji: '🍎' },
-  { name: '桃子', radius: 85, color: '#ffc0cb', score: 64, emoji: '🍑' },
-  { name: '菠萝', radius: 100, color: '#ffd700', score: 128, emoji: '🍍' },
-  { name: '椰子', radius: 120, color: '#8b4513', score: 256, emoji: '🥥' },
-  { name: '西瓜', radius: 150, color: '#228b22', score: 512, emoji: '🍉' },
-  { name: '刘院长', radius: 180, color: '#006400', score: 1024, emoji: '🍉' },
-];
+// 生成基于 HSL 的蓝色到红色的渐变色（色相渐变）
+const getGradientColor = (level: number, total: number) => {
+  // 蓝色 HSL 约为 240，红色 HSL 约为 0
+  // 为了路过中间的颜色（青、绿、黄、橙），我们从 240 减小到 0
+  const ratio = level / (total - 1);
+  const hue = Math.round(240 * (1 - ratio));
+  return `hsl(${hue}, 70%, 50%)`;
+};
+
+const FRUIT_CONFIG_BASE = Array.from({ length: TOTAL_LEVELS }, (_, i) => ({
+  name: i === TOTAL_LEVELS - 1 ? '刘院长' : `导师_${i}`,
+  radius: 15 + i * 15, // 这里的半径逻辑可以稍微优化，原来的逻辑是：15, 25, 35, 45, 55, 70, 85, 100, 120, 150, 180
+  color: getGradientColor(i, TOTAL_LEVELS),
+  score: Math.pow(2, i),
+  emoji: '🎓'
+}));
+
+// 稍微调整半径，使其更接近原有的比例
+const RADIUS_MAPPING = [15, 25, 35, 45, 55, 70, 85, 100, 120, 150, 180, 210, 240];
+FRUIT_CONFIG_BASE.forEach((config, i) => {
+  config.radius = RADIUS_MAPPING[i] || (180 + (i - 10) * 30);
+});
 
 const Game: React.FC = () => {
   const sceneRef = useRef<HTMLDivElement>(null);
@@ -29,6 +46,26 @@ const Game: React.FC = () => {
   const [showTutorial, setShowTutorial] = useState(true);
   const [maxFruitLevel, setMaxFruitLevel] = useState(0);
   const maxFruitLevelRef = useRef(0);
+
+  // 导师分配逻辑
+  const [assignedMentors, setAssignedMentors] = useState<Mentor[]>(() => {
+    const allMentors: Mentor[] = mentorsData as Mentor[];
+    const liuTieyan = allMentors.find(m => m.name === '刘铁岩');
+    const others = allMentors.filter(m => m.name !== '刘铁岩');
+    
+    // 随机选择 (TOTAL_LEVELS - 1) 个导师
+    const shuffled = [...others].sort(() => Math.random() - 0.5);
+    const selected = shuffled.slice(0, TOTAL_LEVELS - 1);
+    
+    // 刘铁岩固定在最后（最高级）
+    if (liuTieyan) {
+      selected.push(liuTieyan);
+    } else {
+      selected.push({ name: '刘铁岩', avatar: 'tie_yan.png', homepage: '' });
+    }
+    return selected;
+  });
+
   const [currentFruitIndex, setCurrentFruitIndex] = useState(() => Math.floor(Math.random() * 3));
   const currentFruitIndexRef = useRef(currentFruitIndex);
   const [nextFruitIndex, setNextFruitIndex] = useState(() => Math.floor(Math.random() * 3));
@@ -77,12 +114,18 @@ const Game: React.FC = () => {
   const BURN_DURATION = 3000; // 3秒烧完
 
   useEffect(() => {
-    // 预加载图片
-    const img = new Image();
-    img.src = 'tie_yan.png';
-    img.onload = () => {
-      fruitImages.current.set('tie_yan', img);
-    };
+    // 预加载所有导师头像
+    assignedMentors.forEach((mentor, index) => {
+      const img = new Image();
+      img.src = mentor.avatar;
+      img.onload = () => {
+        fruitImages.current.set(`mentor_${index}`, img);
+      };
+      // 处理加载失败的情况，可以使用默认图片或文字占位
+      img.onerror = () => {
+        console.error(`Failed to load avatar for ${mentor.name}: ${mentor.avatar}`);
+      };
+    });
 
     const handleResize = () => {
       const screenWidth = window.innerWidth;
@@ -245,22 +288,28 @@ const Game: React.FC = () => {
           context.textAlign = 'center';
           context.textBaseline = 'middle';
 
-          // 如果是最后一个等级（刘院长），绘制图片
-          if (index === fruitConfig.length - 1) {
-            const img = fruitImages.current.get('tie_yan');
-            if (img && img.complete) { // 增加 complete 检查
-              context.drawImage(img, -config.radius, -config.radius, config.radius * 2, config.radius * 2);
-            } else {
-              // 如果还没加载完，先画个圆占位
-              context.beginPath();
-              context.arc(0, 0, config.radius, 0, Math.PI * 2);
-              context.fillStyle = config.color;
-              context.fill();
-            }
+          // 绘制背景圆圈
+          context.beginPath();
+          context.arc(0, 0, config.radius, 0, Math.PI * 2);
+          context.fillStyle = config.color;
+          context.fill();
+          
+          // 绘制导师头像
+          const img = fruitImages.current.get(`mentor_${index}`);
+          if (img && img.complete) {
+            context.save();
+            context.beginPath();
+            context.arc(0, 0, config.radius * 0.9, 0, Math.PI * 2); // 稍微缩小一点，露出边框
+            context.clip();
+            context.drawImage(img, -config.radius * 0.9, -config.radius * 0.9, config.radius * 1.8, config.radius * 1.8);
+            context.restore();
           } else {
-            context.font = `${config.radius * 1.5}px Arial`;
-            context.fillText(config.emoji, 0, 0);
+            // 如果图片没加载完，显示名字的前两个字或者emoji
+            context.fillStyle = 'white';
+            context.font = `bold ${config.radius * 0.6}px Arial`;
+            context.fillText(assignedMentors[index].name.substring(0, 2), 0, 0);
           }
+          
           context.restore();
         }
       });
@@ -528,30 +577,44 @@ const Game: React.FC = () => {
           top: `${20 * dimensions.scale}px`,
           left: `${20 * dimensions.scale}px`,
           color: '#333',
-          fontSize: `${32 * dimensions.scale}px`,
+          fontSize: `${36 * dimensions.scale}px`,
           fontWeight: 'bold',
           textShadow: '1px 1px 2px white'
         }}>
           得分: {score}
           {/* 常驻显示合成顺序 */}
           <div className="sequence-display" style={{
-            marginTop: `${12 * dimensions.scale}px`,
+            marginTop: `${15 * dimensions.scale}px`,
             display: 'flex',
             flexWrap: 'wrap',
             alignItems: 'center',
             background: 'rgba(255, 255, 255, 0.75)',
-            padding: `${8 * dimensions.scale}px ${15 * dimensions.scale}px`,
-            borderRadius: `${12 * dimensions.scale}px`,
-            fontSize: `${16 * dimensions.scale}px`,
-            width: `${280 * dimensions.scale}px`,
-            gap: `${4 * dimensions.scale}px`,
-            border: '1px solid rgba(0,0,0,0.1)',
-            boxShadow: '0 4px 10px rgba(0,0,0,0.08)'
+            padding: `${10 * dimensions.scale}px ${15 * dimensions.scale}px`,
+            borderRadius: `${15 * dimensions.scale}px`,
+            fontSize: `${58 * dimensions.scale}px`,
+            width: `${310 * dimensions.scale}px`,
+            gap: `${8 * dimensions.scale}px`,
+            border: '2px solid rgba(255,255,255,0.5)',
+            boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
           }}>
-            {fruitConfig.map((f, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ fontSize: `${20 * dimensions.scale}px` }}>{i === fruitConfig.length - 1 ? '刘' : f.emoji}</span>
-                {i < fruitConfig.length - 1 && <span style={{ margin: `0 ${2 * dimensions.scale}px`, opacity: 0.3, fontSize: `${14 * dimensions.scale}px` }}>→</span>}
+            {assignedMentors.map((m, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: `${3 * dimensions.scale}px` }}>
+                <div style={{
+                  width: `${37 * dimensions.scale}px`,
+                  height: `${37 * dimensions.scale}px`,
+                  borderRadius: '50%',
+                  backgroundColor: fruitConfig[i].color,
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  color: 'white',
+                  fontSize: `${24 * dimensions.scale}px`,
+                  fontWeight: 'bold',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+                }}>
+                  {m.name.substring(0, 1)}
+                </div>
+                {i < assignedMentors.length - 1 && <span style={{ opacity: 0.3, fontSize: `${14 * dimensions.scale}px` }}>→</span>}
               </div>
             ))}
           </div>
@@ -563,14 +626,38 @@ const Game: React.FC = () => {
           right: `${20 * dimensions.scale}px`,
           textAlign: 'center',
           background: 'rgba(255, 255, 255, 0.75)',
-          padding: `${12 * dimensions.scale}px`,
-          borderRadius: `${15 * dimensions.scale}px`,
-          border: '1px solid rgba(0,0,0,0.1)',
-          boxShadow: '0 4px 10px rgba(0,0,0,0.08)',
-          minWidth: `${60 * dimensions.scale}px`
+          padding: `${15 * dimensions.scale}px`,
+          borderRadius: `${20 * dimensions.scale}px`,
+          border: '2px solid rgba(255,255,255,0.5)',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
+          minWidth: `${80 * dimensions.scale}px`
         }}>
-          <div style={{ fontSize: `${20 * dimensions.scale}px`, color: '#666', marginBottom: `${4 * dimensions.scale}px` }}>下一个</div>
-          <div style={{ fontSize: `${60 * dimensions.scale}px`, lineHeight: 1 }}>{fruitConfig[currentFruitIndex].emoji}</div>
+          <div style={{ fontSize: `${24 * dimensions.scale}px`, color: '#666', marginBottom: `${8 * dimensions.scale}px`, fontWeight: 'bold' }}>下一个</div>
+          <div style={{ 
+            width: `${80 * dimensions.scale}px`, 
+            height: `${80 * dimensions.scale}px`, 
+            borderRadius: '50%', 
+            backgroundColor: fruitConfig[currentFruitIndex].color,
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            overflow: 'hidden',
+            margin: '0 auto',
+            border: `3px solid white`,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+          }}>
+            {fruitImages.current.get(`mentor_${currentFruitIndex}`) ? (
+              <img 
+                src={assignedMentors[currentFruitIndex].avatar} 
+                alt="next" 
+                style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+              />
+            ) : (
+              <span style={{ fontSize: `${32 * dimensions.scale}px`, color: 'white', fontWeight: 'bold' }}>
+                {assignedMentors[currentFruitIndex].name.substring(0, 1)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -613,14 +700,14 @@ const Game: React.FC = () => {
           padding: `${20 * dimensions.scale}px`,
           boxSizing: 'border-box'
         }}>
-          <h2 style={{ color: '#ffcc00', marginBottom: `${20 * dimensions.scale}px`, fontSize: `${24 * dimensions.scale}px` }}>终极目标：合成刘院长</h2>
+          <h2 style={{ color: '#ffcc00', marginBottom: `${20 * dimensions.scale}px`, fontSize: `${24 * dimensions.scale}px` }}>终极目标：合成刘铁岩</h2>
           <ul style={{ textAlign: 'left', lineHeight: '1.8', fontSize: `${16 * dimensions.scale}px` }}>
             <li>左右滑动：选择位置</li>
             <li>抬起手指：让其掉落</li>
-            <li>相同水果碰撞：合成更高级水果</li>
+            <li>相同导师碰撞：合成更高级导师</li>
             <li>注意：不要超过红色虚线！</li>
           </ul>
-          <h3 style={{ fontSize: `${18 * dimensions.scale}px` }}>合成顺序</h3>
+          <h3 style={{ fontSize: `${18 * dimensions.scale}px`, marginTop: `${10 * dimensions.scale}px` }}>合成顺序</h3>
           <div style={{ 
             display: 'flex', 
             flexWrap: 'wrap', 
@@ -629,12 +716,94 @@ const Game: React.FC = () => {
             background: 'rgba(255,255,255,0.1)',
             padding: `${15 * dimensions.scale}px`,
             borderRadius: `${10 * dimensions.scale}px`,
-            marginBottom: `${20 * dimensions.scale}px`
+            marginBottom: `${15 * dimensions.scale}px`,
+            maxWidth: '100%'
           }}>
-            {fruitConfig.map((f, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center' }}>
-                <span style={{ fontSize: `${20 * dimensions.scale}px` }}>{i === fruitConfig.length - 1 ? '刘院长' : f.emoji}</span>
-                {i < fruitConfig.length - 1 && <span style={{ marginLeft: `${5 * dimensions.scale}px`, opacity: 0.5 }}>→</span>}
+            {assignedMentors.map((m, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: `${4 * dimensions.scale}px` }}>
+                <div style={{
+                  width: `${32 * dimensions.scale}px`,
+                  height: `${32 * dimensions.scale}px`,
+                  borderRadius: '50%',
+                  backgroundColor: fruitConfig[i].color,
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  color: 'white',
+                  fontSize: `${18 * dimensions.scale}px`,
+                  fontWeight: 'bold',
+                  textShadow: '0 1px 2px rgba(0,0,0,0.3)'
+                }}>
+                  {m.name.substring(0, 1)}
+                </div>
+                {i < assignedMentors.length - 1 && <span style={{ opacity: 0.5, fontSize: `${16 * dimensions.scale}px` }}>→</span>}
+              </div>
+            ))}
+          </div>
+
+          <h3 style={{ fontSize: `${18 * dimensions.scale}px`, marginBottom: `${10 * dimensions.scale}px` }}>导师介绍</h3>
+          <div style={{
+            width: '100%',
+            maxHeight: `${300 * dimensions.scale}px`,
+            overflowY: 'auto',
+            background: 'rgba(255,255,255,0.1)',
+            borderRadius: `${10 * dimensions.scale}px`,
+            padding: `${10 * dimensions.scale}px`,
+            marginBottom: `${20 * dimensions.scale}px`,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: `${8 * dimensions.scale}px`
+          }}>
+            {assignedMentors.map((m, i) => (
+              <div key={i} style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: `${6 * dimensions.scale}px ${10 * dimensions.scale}px`,
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: `${8 * dimensions.scale}px`
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: `${8 * dimensions.scale}px`, overflow: 'hidden' }}>
+                  <img 
+                    src={m.avatar} 
+                    alt={m.name} 
+                    style={{ 
+                      width: `${32 * dimensions.scale}px`, 
+                      height: `${32 * dimensions.scale}px`, 
+                      borderRadius: '50%', 
+                      objectFit: 'cover',
+                      flexShrink: 0,
+                      border: `2px solid ${fruitConfig[i].color}`
+                    }} 
+                  />
+                  <span style={{ 
+                    fontSize: `${14 * dimensions.scale}px`, 
+                    fontWeight: 'bold',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>{m.name}</span>
+                </div>
+                {m.homepage && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.open(m.homepage, '_blank');
+                    }}
+                    style={{
+                      padding: `${3 * dimensions.scale}px ${8 * dimensions.scale}px`,
+                      fontSize: `${10 * dimensions.scale}px`,
+                      backgroundColor: 'rgba(255,255,255,0.2)',
+                      border: '1px solid rgba(255,255,255,0.3)',
+                      borderRadius: `${12 * dimensions.scale}px`,
+                      color: 'white',
+                      cursor: 'pointer',
+                      flexShrink: 0
+                    }}
+                  >
+                    主页
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -679,7 +848,7 @@ const Game: React.FC = () => {
         }}>
           <h2 style={{ fontSize: '36px', margin: '0 0 10px 0', color: '#8b4513', fontWeight: '900' }}>挑战成功！</h2>
           <div style={{ fontSize: '80px', margin: '10px 0' }}>🏆</div>
-          <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>你成功合成了刘院长！</p>
+          <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>你成功合成了刘铁岩！</p>
           <div style={{ 
             fontSize: '24px', 
             margin: '20px 0', 
@@ -732,7 +901,7 @@ const Game: React.FC = () => {
         }}>
           <h2 style={{ fontSize: '36px', margin: '0 0 10px 0', fontWeight: '900' }}>挑战失败</h2>
           <div style={{ fontSize: '80px', margin: '10px 0' }}>❌</div>
-          <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>水果堆积过高啦！</p>
+          <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>导师堆积过高啦！</p>
           <div style={{ 
             fontSize: '24px', 
             margin: '20px 0', 

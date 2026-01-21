@@ -4,7 +4,7 @@ import os
 
 def crawl_mentors_via_api():
     # 使用用户提供的 API
-    # 设置 limit=300 确保一次性获取所有数据（目前总数约 200+，一页确实够了）
+    # 设置 limit=300 确保一次性获取所有数据
     api_url = "https://www.bjzgca.edu.cn/api/teacher"
     params = {
         "type": "tutor",
@@ -38,17 +38,19 @@ def crawl_mentors_via_api():
         position = item.get('position', '') or ''
         
         # 排除所有共建导师
-        # 检查 source 或 position 中是否包含 "共建导师"
         if "共建导师" in source or "共建导师" in position:
             excluded_count += 1
             continue
             
-        # 提取头像链接 (补全域名)
+        # 提取头像链接 (补全域名，并将空格替换为 %20)
         avatar = item.get('pic', '')
-        if avatar and not avatar.startswith('http'):
-            avatar = "https://www.bjzgca.edu.cn" + avatar
+        if avatar:
+            avatar = avatar.replace(' ', '%20')
+            if not avatar.startswith('http'):
+                # 根据用户反馈，头像路径需要通过 /adminapi 访问
+                avatar = "https://www.bjzgca.edu.cn/adminapi" + avatar
             
-        # 提取主页链接 (优先使用 link，如果没有则使用详情页)
+        # 提取主页链接
         homepage = item.get('link', '')
         if not homepage:
             uuid = item.get('uuid')
@@ -61,16 +63,17 @@ def crawl_mentors_via_api():
             "homepage": homepage
         })
 
-    # 保存为 JSON
-    os.makedirs('data', exist_ok=True)
-    output_path = 'data/mentors.json'
+    # 保存为 JSON (修改输出路径)
+    output_path = r'D:\PROJECT\VSCode\AI+Game\Craft_Big_Boss\src\data\mentors.json'
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    
     with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(mentors_list, f, ensure_ascii=False, indent=4)
     
     print(f"处理完成：")
     print(f"- 排除共建导师: {excluded_count} 位")
     print(f"- 最终保存导师: {len(mentors_list)} 位")
-    print(f"- 数据已保存至: {os.path.abspath(output_path)}")
+    print(f"- 数据已保存至: {output_path}")
 
 if __name__ == "__main__":
     crawl_mentors_via_api()
