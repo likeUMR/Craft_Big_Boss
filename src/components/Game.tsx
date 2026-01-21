@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Matter from 'matter-js';
 
-const FRUIT_CONFIG = [
+const BASE_WIDTH = 500;
+const BASE_HEIGHT = 800; // 设定一个基准高度比例
+
+const FRUIT_CONFIG_BASE = [
   { name: '山竹', radius: 15, color: '#ff0000', score: 1, emoji: '🫐' },
   { name: '樱桃', radius: 25, color: '#ff4d4d', score: 2, emoji: '🍒' },
   { name: '橘子', radius: 35, color: '#ffa500', score: 4, emoji: '🍊' },
@@ -25,43 +28,54 @@ const Game: React.FC = () => {
   const [showTutorial, setShowTutorial] = useState(true);
   const [maxFruitLevel, setMaxFruitLevel] = useState(0);
   const [currentFruitIndex, setCurrentFruitIndex] = useState(0);
-  const [nextFruitIndex, setNextFruitIndex] = useState(() => Math.floor(Math.random() * 3)); // 初始前3种
-  const [dimensions, setDimensions] = useState({
-    width: Math.min(window.innerWidth, 500),
-    height: window.innerHeight
+  const [nextFruitIndex, setNextFruitIndex] = useState(() => Math.floor(Math.random() * 3));
+  
+  // 动态计算缩放比例
+  const [dimensions, setDimensions] = useState(() => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const scale = width / BASE_WIDTH;
+    return { width, height, scale };
   });
+
+  // 根据缩放比例动态生成配置
+  const fruitConfig = FRUIT_CONFIG_BASE.map(f => ({
+    ...f,
+    radius: f.radius * dimensions.scale
+  }));
+
   const fruitImages = useRef<Map<string, HTMLImageElement>>(new Map());
   const isDropping = useRef(false);
   const currentFruitBody = useRef<Matter.Body | null>(null);
-  const gameOverLineY = 200; // 红线往下移
+  const gameOverLineY = 200 * dimensions.scale; // 判定线也随比例缩放
   const fruitStayAboveLine = useRef<Map<number, number>>(new Map());
 
   useEffect(() => {
     // 预加载图片
     const img = new Image();
-    img.src = '/tie_yan.png';
+    img.src = 'tie_yan.png';
     img.onload = () => {
       fruitImages.current.set('tie_yan', img);
     };
 
     const handleResize = () => {
-      setDimensions({
-        width: Math.min(window.innerWidth, 500),
-        height: window.innerHeight
-      });
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const scale = width / BASE_WIDTH;
+      setDimensions({ width, height, scale });
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   useEffect(() => {
-    const { width, height } = dimensions;
+    const { width, height, scale } = dimensions;
     
     // 初始化引擎
     const engine = Matter.Engine.create({
-      gravity: { y: 1.5 },
-      positionIterations: 10, // 增加位置计算迭代次数，缓解重叠侵入
-      velocityIterations: 10  // 增加速度计算迭代次数
+      gravity: { y: 1.5 * scale }, // 重力也随比例缩放，保证物理感一致
+      positionIterations: 10,
+      velocityIterations: 10
     });
     engineRef.current = engine;
 
@@ -341,6 +355,14 @@ const Game: React.FC = () => {
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
     >
+      <style>
+        {`
+          @keyframes popIn {
+            0% { transform: translate(-50%, -50%) scale(0.5); opacity: 0; }
+            100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+          }
+        `}
+      </style>
       <div className="score-board" style={{
         position: 'absolute',
         top: 20,
@@ -462,28 +484,37 @@ const Game: React.FC = () => {
           borderRadius: '20px',
           textAlign: 'center',
           zIndex: 100,
-          boxShadow: '0 0 30px rgba(0,0,0,0.5)',
+          boxShadow: '0 0 40px rgba(0,0,0,0.6)',
           border: '5px solid white',
           width: '80%',
-          maxWidth: '300px'
+          maxWidth: '300px',
+          animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}>
-          <h2 style={{ fontSize: '32px', margin: '0 0 10px 0', color: '#8b4513' }}>挑战成功！</h2>
-          <div style={{ fontSize: '60px', marginBottom: '10px' }}>🏆</div>
-          <p style={{ fontSize: '18px', fontWeight: 'bold' }}>你成功合成了刘院长！</p>
-          <p style={{ fontSize: '20px', margin: '10px 0' }}>最终得分: <span style={{ color: '#d2691e' }}>{score}</span></p>
+          <h2 style={{ fontSize: '36px', margin: '0 0 10px 0', color: '#8b4513', fontWeight: '900' }}>挑战成功！</h2>
+          <div style={{ fontSize: '80px', margin: '10px 0' }}>🏆</div>
+          <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>你成功合成了刘院长！</p>
+          <div style={{ 
+            fontSize: '24px', 
+            margin: '20px 0', 
+            padding: '10px', 
+            background: 'rgba(255,255,255,0.3)',
+            borderRadius: '10px'
+          }}>
+            最终得分: <span style={{ color: '#d2691e', fontWeight: '900' }}>{score}</span>
+          </div>
           <button 
             onClick={() => window.location.reload()}
             style={{
-              marginTop: '15px',
+              marginTop: '10px',
               padding: '12px 40px',
-              fontSize: '18px',
+              fontSize: '20px',
               backgroundColor: '#8b4513',
               color: 'white',
               border: 'none',
-              borderRadius: '25px',
+              borderRadius: '30px',
               cursor: 'pointer',
               fontWeight: 'bold',
-              boxShadow: '0 4px 0 #5d2e0d'
+              boxShadow: '0 6px 0 #5d2e0d'
             }}
           >
             再来一局
@@ -503,28 +534,37 @@ const Game: React.FC = () => {
           borderRadius: '20px',
           textAlign: 'center',
           zIndex: 100,
-          boxShadow: '0 0 30px rgba(0,0,0,0.5)',
+          boxShadow: '0 0 40px rgba(0,0,0,0.6)',
           border: '5px solid white',
           width: '80%',
-          maxWidth: '300px'
+          maxWidth: '300px',
+          animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}>
-          <h2 style={{ fontSize: '32px', margin: '0 0 10px 0' }}>挑战失败</h2>
-          <div style={{ fontSize: '60px', marginBottom: '10px' }}>❌</div>
-          <p style={{ fontSize: '18px', fontWeight: 'bold' }}>水果堆积过高啦！</p>
-          <p style={{ fontSize: '20px', margin: '10px 0' }}>最终得分: <span style={{ fontWeight: 'bold' }}>{score}</span></p>
+          <h2 style={{ fontSize: '36px', margin: '0 0 10px 0', fontWeight: '900' }}>挑战失败</h2>
+          <div style={{ fontSize: '80px', margin: '10px 0' }}>❌</div>
+          <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>水果堆积过高啦！</p>
+          <div style={{ 
+            fontSize: '24px', 
+            margin: '20px 0', 
+            padding: '10px', 
+            background: 'rgba(255,255,255,0.2)',
+            borderRadius: '10px'
+          }}>
+            最终得分: <span style={{ fontWeight: '900' }}>{score}</span>
+          </div>
           <button 
             onClick={() => window.location.reload()}
             style={{
-              marginTop: '15px',
+              marginTop: '10px',
               padding: '12px 40px',
-              fontSize: '18px',
+              fontSize: '20px',
               backgroundColor: 'white',
               color: '#dc3545',
               border: 'none',
-              borderRadius: '25px',
+              borderRadius: '30px',
               cursor: 'pointer',
               fontWeight: 'bold',
-              boxShadow: '0 4px 0 #a71d2a'
+              boxShadow: '0 6px 0 #a71d2a'
             }}
           >
             重整旗鼓

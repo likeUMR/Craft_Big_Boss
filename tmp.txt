@@ -1,2 +1,9 @@
-为了保证公平，请对宽度进行缩放（如果识别到是手机界面，则缩放容器宽度和所有物品的比例，使得契合手机的同时对所有玩家公平。
+为了保证公平，请对宽度进行缩放（如果识别到是手机界面，则缩放容器宽度和所有物品的比例，使得契合手机的同时对所有玩家公平）目标：容器区域横向占满屏幕，且相对长度相同（例如都是x单位个xx水果的直径）且纵向区域的相对大小对于所有玩家相同
 
+
+这个游戏在部署的时候，遇到了这些问题：
+Failed to load resource: the server responded with a status of 404 (Not Found)
+assets/index-Dq2ezSgr.js:1  Failed to load resource: the server responded with a status of 404 (Not Found)
+vite.svg:1  Failed to load resource: the server responded with a status of 404 (Not Found)
+index-CC735My_.css:1  Failed to load resource: the server responded with a status of 404 (Not Found)
+我怀疑，是路径的问题，请帮我修复（需要全都是相对路径）
