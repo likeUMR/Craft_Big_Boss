@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Matter from 'matter-js';
+import { soundManager } from '../utils/SoundManager';
 
 const BASE_WIDTH = 500;
 const BASE_HEIGHT = 800; // 设定一个基准高度比例
@@ -27,8 +28,17 @@ const Game: React.FC = () => {
   const [gameWin, setGameWin] = useState(false);
   const [showTutorial, setShowTutorial] = useState(true);
   const [maxFruitLevel, setMaxFruitLevel] = useState(0);
-  const [currentFruitIndex, setCurrentFruitIndex] = useState(0);
+  const maxFruitLevelRef = useRef(0);
+  const [currentFruitIndex, setCurrentFruitIndex] = useState(() => Math.floor(Math.random() * 3));
+  const currentFruitIndexRef = useRef(currentFruitIndex);
   const [nextFruitIndex, setNextFruitIndex] = useState(() => Math.floor(Math.random() * 3));
+  const nextFruitIndexRef = useRef(nextFruitIndex);
+  
+  // 确保 Refs 在状态改变时同步（主要用于初始化后的同步）
+  useEffect(() => {
+    currentFruitIndexRef.current = currentFruitIndex;
+    nextFruitIndexRef.current = nextFruitIndex;
+  }, [currentFruitIndex, nextFruitIndex]);
   
   // 动态计算缩放比例
   const [dimensions, setDimensions] = useState(() => {
@@ -60,7 +70,11 @@ const Game: React.FC = () => {
   const isDropping = useRef(false);
   const currentFruitBody = useRef<Matter.Body | null>(null);
   const gameOverLineY = 150 * dimensions.scale; // 稍微调高一点死亡线
-  const fruitStayAboveLine = useRef<Map<number, number>>(new Map());
+  
+  // 烧条机制相关的状态
+  const isBurning = useRef(false);
+  const burningStartTime = useRef<number | null>(null);
+  const BURN_DURATION = 3000; // 3秒烧完
 
   useEffect(() => {
     // 预加载图片
@@ -124,15 +138,96 @@ const Game: React.FC = () => {
     // 绘制逻辑
     Matter.Events.on(render, 'afterRender', () => {
       const context = render.context;
+      const now = Date.now();
       
-      // 绘制死亡线
-      context.beginPath();
-      context.moveTo(0, gameOverLineY);
-      context.lineTo(width, gameOverLineY);
-      context.strokeStyle = 'rgba(255, 0, 0, 0.5)';
-      context.setLineDash([5, 5]);
-      context.lineWidth = 2;
-      context.stroke();
+      // 1. 失败检测与烧条逻辑更新
+      let currentProgress = 0;
+      if (!gameOver && !gameWin) {
+        const bodies = Matter.Composite.allBodies(engine.world);
+        let anyFruitAbove = false;
+
+        for (const body of bodies) {
+          if (!body.isStatic && body.label.startsWith('fruit_')) {
+            const index = parseInt(body.label.split('_')[1]);
+            const radius = fruitConfig[index].radius;
+            // 判定水果顶部超过死亡线，且速度较慢（堆积判定）
+            if (body.position.y - radius < gameOverLineY && body.velocity.y < 0.2) {
+              anyFruitAbove = true;
+              break;
+            }
+          }
+        }
+
+        if (anyFruitAbove) {
+          if (!isBurning.current) {
+            isBurning.current = true;
+            burningStartTime.current = now;
+            // 危险警告音
+            soundManager.startWarning();
+          }
+          const elapsed = now - burningStartTime.current!;
+          currentProgress = Math.min(1, elapsed / BURN_DURATION);
+          
+          if (currentProgress >= 1) {
+            setGameOver(true);
+            soundManager.playGameOver();
+          }
+        } else {
+          if (isBurning.current) {
+            isBurning.current = false;
+            burningStartTime.current = null;
+            soundManager.stopWarning();
+          }
+        }
+      }
+
+      // 2. 绘制死亡线（带烧条效果）
+      const burnWidth = width * currentProgress;
+      const remainingWidth = width - burnWidth;
+
+      // 绘制已烧尽部分（灰色）
+      if (burnWidth > 0) {
+        context.beginPath();
+        context.moveTo(width, gameOverLineY);
+        context.lineTo(width - burnWidth, gameOverLineY);
+        context.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+        context.setLineDash([5, 5]);
+        context.lineWidth = 2;
+        context.stroke();
+      }
+
+      // 绘制未烧尽部分（红色）
+      if (remainingWidth > 0) {
+        context.beginPath();
+        context.moveTo(0, gameOverLineY);
+        context.lineTo(remainingWidth, gameOverLineY);
+        context.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+        context.setLineDash([5, 5]);
+        context.lineWidth = 3;
+        context.stroke();
+
+        // 如果正在燃烧，在交界处增加鞭炮/火花效果
+        if (isBurning.current && currentProgress > 0 && currentProgress < 1) {
+          const sparkX = remainingWidth;
+          const sparkY = gameOverLineY;
+          
+          // 绘制一个明亮的火花点
+          context.beginPath();
+          context.arc(sparkX, sparkY, 4 * scale, 0, Math.PI * 2);
+          context.fillStyle = '#ffcc00';
+          context.fill();
+          
+          // 随机散发几个小火星
+          for (let i = 0; i < 3; i++) {
+            const offsetX = (Math.random() - 0.5) * 10 * scale;
+            const offsetY = (Math.random() - 0.5) * 10 * scale;
+            context.beginPath();
+            context.arc(sparkX + offsetX, sparkY + offsetY, 1.5 * scale, 0, Math.PI * 2);
+            context.fillStyle = Math.random() > 0.5 ? '#ff4500' : '#ffff00';
+            context.fill();
+          }
+        }
+      }
       context.setLineDash([]);
 
       // 绘制表情
@@ -197,9 +292,12 @@ const Game: React.FC = () => {
         if (bodyA.label === bodyB.label && bodyA.label.startsWith('fruit_')) {
           const level = parseInt(bodyA.label.split('_')[1]);
           if (level < fruitConfig.length - 1) {
-            if (bodyA.isStatic || bodyB.isStatic) return;
+            if (bodyA.isStatic || bodyB.isStatic || gameOver || gameWin) return;
             
             processedCollisions.add(collisionId);
+            
+            // 播放合成音效
+            soundManager.playMerge(level);
             
             const x = (bodyA.position.x + bodyB.position.x) / 2;
             const y = (bodyA.position.y + bodyB.position.y) / 2;
@@ -211,7 +309,11 @@ const Game: React.FC = () => {
             Matter.World.add(engine.world, newFruit);
             
             // 更新最高等级记录
-            setMaxFruitLevel(prev => Math.max(prev, newLevel));
+            setMaxFruitLevel(prev => {
+              const max = Math.max(prev, newLevel);
+              maxFruitLevelRef.current = max;
+              return max;
+            });
             
             createParticles(x, y, fruitConfig[level].color);
             setScore((prev) => prev + fruitConfig[newLevel].score);
@@ -219,6 +321,7 @@ const Game: React.FC = () => {
             // 胜利判定：合成出最后一个等级
             if (newLevel === fruitConfig.length - 1) {
               setGameWin(true);
+              soundManager.playWin();
             }
 
             // 清理已处理的碰撞对 ID
@@ -234,44 +337,16 @@ const Game: React.FC = () => {
       console.log("测试命令：游戏胜利！");
     };
 
-    // 游戏结束检测
-    const checkGameOver = setInterval(() => {
-      if (gameOver || gameWin) return; // 胜利后不再检测失败
-      const allBodies = Matter.Composite.allBodies(engine.world);
-      const now = Date.now();
-      for (const body of allBodies) {
-        if (!body.isStatic && body.label.startsWith('fruit_')) {
-          const index = parseInt(body.label.split('_')[1]);
-          const radius = fruitConfig[index].radius;
-          
-          // 只要水果的顶部超过了死亡线，且速度较慢（判定为堆积而非刚落下）
-          if (body.position.y - radius < gameOverLineY && body.velocity.y < 0.2) {
-            if (!fruitStayAboveLine.current.has(body.id)) {
-              fruitStayAboveLine.current.set(body.id, now);
-            } else {
-              const stayTime = now - fruitStayAboveLine.current.get(body.id)!;
-              if (stayTime > 2000) { // 稍微缩短判定时间到 2 秒，增加紧张感
-                setGameOver(true);
-                break;
-              }
-            }
-          } else {
-            fruitStayAboveLine.current.delete(body.id);
-          }
-        }
-      }
-    }, 500);
-
     // 运行
     const runner = Matter.Runner.create();
     Matter.Runner.run(runner, engine);
     Matter.Render.run(render);
 
     return () => {
-      clearInterval(checkGameOver);
       Matter.Render.stop(render);
       Matter.Engine.clear(engine);
       render.canvas.remove();
+      soundManager.stopWarning();
     };
   }, [dimensions.width, dimensions.height, dimensions.scale]); // 增加 scale 依赖
 
@@ -320,14 +395,25 @@ const Game: React.FC = () => {
     if (!rect) return;
     
     let x = e.clientX - rect.left;
-    const radius = fruitConfig[currentFruitIndex].radius;
+    const radius = fruitConfig[currentFruitIndexRef.current].radius;
     x = Math.max(radius, Math.min(dimensions.width - radius, x));
     
     // 按下时立即生成水果
     if (!currentFruitBody.current) {
-      const fruit = createFruit(x, 100 * dimensions.scale, currentFruitIndex, true);
+      const fruit = createFruit(x, 100 * dimensions.scale, currentFruitIndexRef.current, true);
       currentFruitBody.current = fruit;
       Matter.World.add(engineRef.current!.world, fruit);
+      soundManager.playCreate();
+
+      // 💡 关键修复：水果一旦生成在手里，立即更新“下一个”的索引，让 UI 提前预示
+      const nextIndex = nextFruitIndexRef.current;
+      setCurrentFruitIndex(nextIndex);
+      currentFruitIndexRef.current = nextIndex;
+      
+      const maxRandomLevel = Math.max(3, maxFruitLevelRef.current - 2);
+      const newNextIndex = Math.floor(Math.random() * maxRandomLevel);
+      setNextFruitIndex(newNextIndex);
+      nextFruitIndexRef.current = newNextIndex;
     }
   };
 
@@ -336,12 +422,23 @@ const Game: React.FC = () => {
     const rect = sceneRef.current?.getBoundingClientRect();
     if (!rect) return;
     let x = e.clientX - rect.left;
-    const radius = fruitConfig[currentFruitIndex].radius;
+    const radius = fruitConfig[currentFruitIndexRef.current].radius;
     x = Math.max(radius, Math.min(dimensions.width - radius, x));
     if (!currentFruitBody.current) {
-      const fruit = createFruit(x, 100 * dimensions.scale, currentFruitIndex, true);
+      const fruit = createFruit(x, 100 * dimensions.scale, currentFruitIndexRef.current, true);
       currentFruitBody.current = fruit;
       Matter.World.add(engineRef.current!.world, fruit);
+      soundManager.playCreate();
+
+      // 💡 同样在 Move 中触发生成时也需要更新预览
+      const nextIndex = nextFruitIndexRef.current;
+      setCurrentFruitIndex(nextIndex);
+      currentFruitIndexRef.current = nextIndex;
+      
+      const maxRandomLevel = Math.max(3, maxFruitLevelRef.current - 2);
+      const newNextIndex = Math.floor(Math.random() * maxRandomLevel);
+      setNextFruitIndex(newNextIndex);
+      nextFruitIndexRef.current = newNextIndex;
     } else {
       Matter.Body.setPosition(currentFruitBody.current, { x, y: 100 * dimensions.scale });
     }
@@ -355,12 +452,10 @@ const Game: React.FC = () => {
     Matter.Body.setStatic(droppedFruit, false);
     currentFruitBody.current = null;
     
-    // 立即准备下一个水果，取消 1000ms 的等待
-    setCurrentFruitIndex(nextFruitIndex);
+    // 播放掉落音效
+    soundManager.playDrop();
     
-    // 生成逻辑：初级 ~ 当前最高档-3级，最少保留前3种
-    const maxRandomLevel = Math.max(3, maxFruitLevel - 2);
-    setNextFruitIndex(Math.floor(Math.random() * maxRandomLevel));
+    // 💡 移除这里的更新逻辑，因为已经在 Down/Move 生成时更新过了
     
     // 如果需要极致手感，这里甚至不需要设置 isDropping 状态
     // 但为了防止极短时间内的重复触发（例如震动），可以保留一个极短的保护期
@@ -475,7 +570,7 @@ const Game: React.FC = () => {
           minWidth: `${60 * dimensions.scale}px`
         }}>
           <div style={{ fontSize: `${20 * dimensions.scale}px`, color: '#666', marginBottom: `${4 * dimensions.scale}px` }}>下一个</div>
-          <div style={{ fontSize: `${60 * dimensions.scale}px`, lineHeight: 1 }}>{fruitConfig[nextFruitIndex].emoji}</div>
+          <div style={{ fontSize: `${60 * dimensions.scale}px`, lineHeight: 1 }}>{fruitConfig[currentFruitIndex].emoji}</div>
         </div>
       </div>
 
@@ -544,7 +639,10 @@ const Game: React.FC = () => {
             ))}
           </div>
           <button 
-            onClick={() => setShowTutorial(false)}
+            onClick={() => {
+              setShowTutorial(false);
+              soundManager.resume();
+            }}
             style={{
               padding: `${12 * dimensions.scale}px ${40 * dimensions.scale}px`,
               fontSize: `${18 * dimensions.scale}px`,
@@ -592,7 +690,10 @@ const Game: React.FC = () => {
             最终得分: <span style={{ color: '#d2691e', fontWeight: '900' }}>{score}</span>
           </div>
           <button 
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              soundManager.resume();
+              window.location.reload();
+            }}
             style={{
               marginTop: '10px',
               padding: '12px 40px',
@@ -642,7 +743,10 @@ const Game: React.FC = () => {
             最终得分: <span style={{ fontWeight: '900' }}>{score}</span>
           </div>
           <button 
-            onClick={() => window.location.reload()}
+            onClick={() => {
+              soundManager.resume();
+              window.location.reload();
+            }}
             style={{
               marginTop: '10px',
               padding: '12px 40px',
