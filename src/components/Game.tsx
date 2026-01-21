@@ -47,8 +47,7 @@ const Game: React.FC = () => {
   const maxFruitLevelRef = useRef(0);
 
   // 导师分配逻辑
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [assignedMentors, setAssignedMentors] = useState<Mentor[]>(() => {
+  const [assignedMentors] = useState<Mentor[]>(() => {
     const allMentors: Mentor[] = mentorsData as Mentor[];
     const liuTieyan = allMentors.find(m => m.name === '刘铁岩');
     const others = allMentors.filter(m => m.name !== '刘铁岩');
