@@ -14,14 +14,38 @@ const BASE_HEIGHT = 800;
 const TOTAL_LEVELS = 10; // 最高级别设置
 
 // 生成基于 HSL 的蓝色到红色的渐变色（色相渐变）
-const getGradientColor = (level: number, total: number) => {
-  // 蓝色 HSL 约为 240，红色 HSL 约为 0
-  // 为了路过中间的颜色（青、绿、黄、橙），我们从 240 减小到 0
+// 新增 power 参数：控制缓动函数的次方数，默认 1.5，值越大两端变化越慢、中间变化越快
+const getGradientColor = (
+  level: number, 
+  total: number, 
+  power: number = 1.5 // 新增参数，默认1.5
+) => {
+  // 处理边界情况：避免 total 为 1 时出现除以 0 的错误
+  if (total === 1) {
+    return 'hsl(260, 85%, 55%)'; // 直接返回初始蓝色
+  }
+  
   const ratio = level / (total - 1);
-  const hue = Math.round(240 * (1 - ratio));
-  return `hsl(${hue}, 70%, 50%)`;
-};
+  
+  // 通用的 Ease-In-Out 缓动函数，支持自定义次方数
+  const easedRatio = ratio < 0.5 
+    ? Math.pow(2 * ratio, power) / 2 
+    : 1 - Math.pow(2 * (1 - ratio), power) / 2;
 
+  // 色相范围从 260 (深蓝/紫) 到 0 (红)
+  const hue = Math.round(260 * (1 - easedRatio));
+  
+  // 提高饱和度使颜色更鲜艳
+  const saturation = 85;
+  
+  // 亮度补偿：绿色(120附近)在视觉上比蓝色和红色更亮，稍微降低绿色区间的亮度以获得更好的对比度
+  let lightness = 55;
+  if (hue > 70 && hue < 170) {
+    lightness = 45; // 绿色区域略微调深，增加质感
+  }
+  
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+};
 const FRUIT_CONFIG_BASE = Array.from({ length: TOTAL_LEVELS }, (_, i) => ({
   name: i === TOTAL_LEVELS - 1 ? '刘院长' : `导师_${i}`,
   radius: 15 + i * 15, // 这里的半径逻辑可以稍微优化，原来的逻辑是：15, 25, 35, 45, 55, 70, 85, 100, 120, 150, 180
@@ -31,7 +55,7 @@ const FRUIT_CONFIG_BASE = Array.from({ length: TOTAL_LEVELS }, (_, i) => ({
 }));
 
 // 稍微调整半径，使其更接近原有的比例
-const RADIUS_MAPPING = [15, 25, 35, 45, 55, 70, 85, 100, 120, 150, 180, 210, 240];
+const RADIUS_MAPPING = [15, 25, 35, 45, 55, 65, 80, 95, 110, 130, 155, 185, 230];
 FRUIT_CONFIG_BASE.forEach((config, i) => {
   config.radius = RADIUS_MAPPING[i] || (180 + (i - 10) * 30);
 });
@@ -47,7 +71,7 @@ const Game: React.FC = () => {
   const maxFruitLevelRef = useRef(0);
 
   // 导师分配逻辑
-  const [assignedMentors] = useState<Mentor[]>(() => {
+  const getRandomMentors = () => {
     const allMentors: Mentor[] = mentorsData as Mentor[];
     const liuTieyan = allMentors.find(m => m.name === '刘铁岩');
     const others = allMentors.filter(m => m.name !== '刘铁岩');
@@ -63,7 +87,13 @@ const Game: React.FC = () => {
       selected.push({ name: '刘铁岩', avatar: 'tie_yan.png', homepage: '' });
     }
     return selected;
-  });
+  };
+
+  const [assignedMentors, setAssignedMentors] = useState<Mentor[]>(getRandomMentors);
+
+  const shuffleMentors = () => {
+    setAssignedMentors(getRandomMentors());
+  };
 
   const [currentFruitIndex, setCurrentFruitIndex] = useState(() => Math.floor(Math.random() * 3));
   const currentFruitIndexRef = useRef(currentFruitIndex);
@@ -125,7 +155,9 @@ const Game: React.FC = () => {
         console.error(`Failed to load avatar for ${mentor.name}: ${mentor.avatar}`);
       };
     });
+  }, [assignedMentors]);
 
+  useEffect(() => {
     const handleResize = () => {
       const screenWidth = window.innerWidth;
       const screenHeight = window.innerHeight;
@@ -567,6 +599,12 @@ const Game: React.FC = () => {
         zIndex: 10,
         pointerEvents: 'none'
       }}>
+        {/* 预渲染隐藏图片以确保浏览器缓存 */}
+        <div style={{ display: 'none' }}>
+          {assignedMentors.map((m, i) => (
+            <img key={i} src={m.avatar} alt="preload" />
+          ))}
+        </div>
         <div className="score-board" style={{
           position: 'absolute',
           top: `${20 * dimensions.scale}px`,
@@ -632,24 +670,30 @@ const Game: React.FC = () => {
             width: `${80 * dimensions.scale}px`, 
             height: `${80 * dimensions.scale}px`, 
             borderRadius: '50%', 
-            backgroundColor: fruitConfig[currentFruitIndex].color,
+            backgroundColor: fruitConfig[currentFruitIndex]?.color || '#ccc',
             display: 'flex',
             justifyContent: 'center',
             alignItems: 'center',
             overflow: 'hidden',
             margin: '0 auto',
-            border: `3px solid white`,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+            position: 'relative'
           }}>
-            {fruitImages.current.get(`mentor_${currentFruitIndex}`) ? (
+            {fruitImages.current.has(`mentor_${currentFruitIndex}`) ? (
               <img 
                 src={assignedMentors[currentFruitIndex].avatar} 
                 alt="next" 
-                style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                style={{ 
+                  width: '90%', 
+                  height: '90%', 
+                  borderRadius: '50%', 
+                  objectFit: 'cover',
+                  display: 'block' 
+                }}
               />
             ) : (
               <span style={{ fontSize: `${32 * dimensions.scale}px`, color: 'white', fontWeight: 'bold' }}>
-                {assignedMentors[currentFruitIndex].name.substring(0, 1)}
+                {assignedMentors[currentFruitIndex]?.name.substring(0, 1)}
               </span>
             )}
           </div>
@@ -736,7 +780,36 @@ const Game: React.FC = () => {
             ))}
           </div>
 
-          <h3 style={{ fontSize: `${18 * dimensions.scale}px`, marginBottom: `${10 * dimensions.scale}px` }}>导师介绍</h3>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            width: '100%', 
+            marginBottom: `${10 * dimensions.scale}px` 
+          }}>
+            <h3 style={{ fontSize: `${18 * dimensions.scale}px`, margin: 0 }}>导师介绍</h3>
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                shuffleMentors();
+              }}
+              style={{
+                padding: `${5 * dimensions.scale}px ${12 * dimensions.scale}px`,
+                fontSize: `${14 * dimensions.scale}px`,
+                backgroundColor: 'rgba(255, 204, 0, 0.2)',
+                border: '1px solid #ffcc00',
+                borderRadius: `${15 * dimensions.scale}px`,
+                color: '#ffcc00',
+                cursor: 'pointer',
+                fontWeight: 'bold',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255, 204, 0, 0.3)')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255, 204, 0, 0.2)')}
+            >
+              🔄 换一换
+            </button>
+          </div>
           <div style={{
             width: '100%',
             maxHeight: `${300 * dimensions.scale}px`,

@@ -55,7 +55,7 @@ def crawl_mentors_via_api():
         if not homepage:
             uuid = item.get('uuid')
             if uuid:
-                homepage = f"https://www.bjzgca.edu.cn/faculty/{uuid}"
+                homepage = f"https://www.bjzgca.edu.cn/teacher/{uuid}"
         
         mentors_list.append({
             "name": name,
