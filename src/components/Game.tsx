@@ -1,64 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Matter from 'matter-js';
 import { soundManager } from '../utils/SoundManager';
-import mentorsData from '../data/mentors.json';
+import { Mentor } from '../types';
+import { 
+  BASE_WIDTH, 
+  BASE_HEIGHT, 
+  TOTAL_LEVELS, 
+  FRUIT_CONFIG_BASE 
+} from '../constants/gameConfig';
+import { getRandomMentors } from '../utils/gameHelpers';
+import { useLeaderboard } from '../hooks/useLeaderboard';
+import { Overlays } from './Game/Overlays';
+import { GameUI } from './Game/GameUI';
 
-interface Mentor {
-  name: string;
-  avatar: string;
-  homepage: string;
-}
-
-const BASE_WIDTH = 500;
-const BASE_HEIGHT = 800;
-const TOTAL_LEVELS = 10; // 最高级别设置
-
-// 生成基于 HSL 的蓝色到红色的渐变色（色相渐变）
-// 新增 power 参数：控制缓动函数的次方数，默认 1.5，值越大两端变化越慢、中间变化越快
-const getGradientColor = (
-  level: number, 
-  total: number, 
-  power: number = 1.5 // 新增参数，默认1.5
-) => {
-  // 处理边界情况：避免 total 为 1 时出现除以 0 的错误
-  if (total === 1) {
-    return 'hsl(260, 85%, 55%)'; // 直接返回初始蓝色
-  }
-  
-  const ratio = level / (total - 1);
-  
-  // 通用的 Ease-In-Out 缓动函数，支持自定义次方数
-  const easedRatio = ratio < 0.5 
-    ? Math.pow(2 * ratio, power) / 2 
-    : 1 - Math.pow(2 * (1 - ratio), power) / 2;
-
-  // 色相范围从 260 (深蓝/紫) 到 0 (红)
-  const hue = Math.round(260 * (1 - easedRatio));
-  
-  // 提高饱和度使颜色更鲜艳
-  const saturation = 85;
-  
-  // 亮度补偿：绿色(120附近)在视觉上比蓝色和红色更亮，稍微降低绿色区间的亮度以获得更好的对比度
-  let lightness = 55;
-  if (hue > 70 && hue < 170) {
-    lightness = 45; // 绿色区域略微调深，增加质感
-  }
-  
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-};
-const FRUIT_CONFIG_BASE = Array.from({ length: TOTAL_LEVELS }, (_, i) => ({
-  name: i === TOTAL_LEVELS - 1 ? '刘院长' : `导师_${i}`,
-  radius: 15 + i * 15, // 这里的半径逻辑可以稍微优化，原来的逻辑是：15, 25, 35, 45, 55, 70, 85, 100, 120, 150, 180
-  color: getGradientColor(i, TOTAL_LEVELS),
-  score: Math.pow(2, i),
-  emoji: '🎓'
-}));
-
-// 稍微调整半径，使其更接近原有的比例
-const RADIUS_MAPPING = [15, 25, 35, 45, 55, 65, 80, 95, 110, 130, 155, 185, 230];
-FRUIT_CONFIG_BASE.forEach((config, i) => {
-  config.radius = RADIUS_MAPPING[i] || (180 + (i - 10) * 30);
-});
 
 const Game: React.FC = () => {
   const sceneRef = useRef<HTMLDivElement>(null);
@@ -67,107 +21,30 @@ const Game: React.FC = () => {
   const runnerRef = useRef<Matter.Runner | null>(null);
   const [score, setScore] = useState(0);
   const [gameOver, setGameOver] = useState(false);
+  const gameOverRef = useRef(false);
   const [gameWin, setGameWin] = useState(false);
+  const gameWinRef = useRef(false);
+
+  useEffect(() => {
+    gameOverRef.current = gameOver;
+  }, [gameOver]);
+
+  useEffect(() => {
+    gameWinRef.current = gameWin;
+  }, [gameWin]);
   const [showTutorial, setShowTutorial] = useState(true);
   const [userId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('userid');
   });
-  const [existingRecord, setExistingRecord] = useState<{ rank: number, created_at: string } | null>(null);
-  const reportedRef = useRef(false);
+  const { existingRecord, reportWin } = useLeaderboard(userId);
   const maxFruitLevelRef = useRef(0);
-
-  // 检查已有记录
-  useEffect(() => {
-    const checkRecord = async () => {
-      if (!userId) return;
-      try {
-        const response = await fetch('https://leaderboard.liruochen.cn/api/player_score', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            game_id: 'craft-big-boss',
-            user_id: userId,
-            field_id: 'clear_time'
-          })
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.rank) {
-            setExistingRecord({
-              rank: data.rank,
-              created_at: data.created_at
-            });
-            reportedRef.current = true; // 已经有记录了，标记为已汇报
-          }
-        }
-      } catch (error) {
-        console.error('Failed to check existing record:', error);
-      }
-    };
-    checkRecord();
-  }, [userId]);
-
-  // 汇报通关信息
-  const reportWin = async (finalScore: number) => {
-    if (!userId || reportedRef.current) return;
-    
-    try {
-      // 1. 汇报通关时间榜 (clear_time)
-      await fetch('https://leaderboard.liruochen.cn/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          game_id: 'craft-big-boss',
-          user_id: userId,
-          score: 1,
-          field_id: 'clear_time'
-        })
-      });
-
-      // 2. 同时汇报分数榜 (main)
-      await fetch('https://leaderboard.liruochen.cn/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          game_id: 'craft-big-boss',
-          user_id: userId,
-          score: finalScore,
-          field_id: 'main'
-        })
-      });
-
-      reportedRef.current = true;
-      console.log('Successfully reported win info for user:', userId);
-    } catch (error) {
-      console.error('Failed to report win info:', error);
-    }
-  };
 
   useEffect(() => {
     if (gameWin) {
       reportWin(score);
     }
-  }, [gameWin, score]);
-
-  // 导师分配逻辑
-  const getRandomMentors = () => {
-    const allMentors: Mentor[] = mentorsData as Mentor[];
-    const liuTieyan = allMentors.find(m => m.name === '刘铁岩');
-    const others = allMentors.filter(m => m.name !== '刘铁岩');
-    
-    // 随机选择 (TOTAL_LEVELS - 1) 个导师
-    const shuffled = [...others].sort(() => Math.random() - 0.5);
-    const selected = shuffled.slice(0, TOTAL_LEVELS - 1);
-    
-    // 刘铁岩固定在最后（最高级）
-    if (liuTieyan) {
-      selected.push(liuTieyan);
-    } else {
-      selected.push({ name: '刘铁岩', avatar: 'tie_yan.png', homepage: '' });
-    }
-    return selected;
-  };
+  }, [gameWin, score, reportWin]);
 
   const [assignedMentors, setAssignedMentors] = useState<Mentor[]>(getRandomMentors);
 
@@ -219,7 +96,8 @@ const Game: React.FC = () => {
   
   // 烧条机制相关的状态
   const isBurning = useRef(false);
-  const burningStartTime = useRef<number | null>(null);
+  const burnProgress = useRef(0);
+  const lastBurnUpdateTime = useRef<number | null>(null);
   const BURN_DURATION = 3000; // 3秒烧完
 
   useEffect(() => {
@@ -300,8 +178,7 @@ const Game: React.FC = () => {
       context.imageSmoothingQuality = 'high';
       
       // 1. 失败检测与烧条逻辑更新
-      let currentProgress = 0;
-      if (!gameOver && !gameWin) {
+      if (!gameOverRef.current && !gameWinRef.current) {
         const bodies = Matter.Composite.allBodies(engine.world);
         let anyFruitAbove = false;
 
@@ -317,35 +194,45 @@ const Game: React.FC = () => {
           }
         }
 
+        const deltaTime = lastBurnUpdateTime.current ? now - lastBurnUpdateTime.current : 0;
+        lastBurnUpdateTime.current = now;
+
         if (anyFruitAbove) {
           if (!isBurning.current) {
             isBurning.current = true;
-            burningStartTime.current = now;
             // 危险警告音
             soundManager.startWarning();
           }
-          const elapsed = now - burningStartTime.current!;
-          currentProgress = Math.min(1, elapsed / BURN_DURATION);
+          burnProgress.current = Math.min(1, burnProgress.current + deltaTime / BURN_DURATION);
           
-          if (currentProgress >= 1) {
+          if (burnProgress.current >= 1) {
             setGameOver(true);
             soundManager.playGameOver();
+            if (runnerRef.current) {
+              Matter.Runner.stop(runnerRef.current);
+            }
           }
         } else {
-          if (isBurning.current) {
+          // 没有触碰时，按烧条速度恢复
+          if (burnProgress.current > 0) {
+            burnProgress.current = Math.max(0, burnProgress.current - deltaTime / BURN_DURATION);
+          }
+          
+          if (isBurning.current && burnProgress.current === 0) {
             isBurning.current = false;
-            burningStartTime.current = null;
             soundManager.stopWarning();
           }
         }
-      } else if (gameWin) {
-        // 胜利后确保停止警告音并重置燃烧状态
-        if (isBurning.current) {
+      } else {
+        // 游戏结束或胜利时，停止更新时间，防止 deltaTime 错误
+        lastBurnUpdateTime.current = null;
+        if (gameWinRef.current && isBurning.current) {
           isBurning.current = false;
-          burningStartTime.current = null;
           soundManager.stopWarning();
         }
       }
+
+      const currentProgress = gameOverRef.current ? 1 : burnProgress.current;
 
       // 2. 绘制死亡线（带烧条效果）
       const burnWidth = width * currentProgress;
@@ -438,7 +325,7 @@ const Game: React.FC = () => {
       });
 
       // 绘制预览虚线（瞄准线）
-      if (currentFruitBody.current && !isDropping.current && !gameOver) {
+      if (currentFruitBody.current && !isDropping.current && !gameOverRef.current) {
         const { x } = currentFruitBody.current.position;
         context.beginPath();
         context.moveTo(x, 100 * scale);
@@ -464,9 +351,14 @@ const Game: React.FC = () => {
         if (bodyA.label === bodyB.label && bodyA.label.startsWith('fruit_')) {
           const level = parseInt(bodyA.label.split('_')[1]);
           if (level < fruitConfig.length - 1) {
-            if (bodyA.isStatic || bodyB.isStatic || gameOver || gameWin) return;
+            if (bodyA.isStatic || bodyB.isStatic || gameOverRef.current || gameWinRef.current) return;
+            
+            // 防止同一物体在同一帧参与多次合成
+            if ((bodyA as any).isMerging || (bodyB as any).isMerging) return;
             
             processedCollisions.add(collisionId);
+            (bodyA as any).isMerging = true;
+            (bodyB as any).isMerging = true;
             
             // 播放合成音效
             soundManager.playMerge(level);
@@ -519,7 +411,7 @@ const Game: React.FC = () => {
 
     (window as any).spawnTestMentors = () => {
       if (!engineRef.current) return;
-      if (gameWin || gameOver) return;
+      if (gameWinRef.current || gameOverRef.current) return;
       const x = dimensions.width / 2;
       const y = dimensions.height / 2;
       const level = fruitConfig.length - 2; // 次高级 (等级 8)
@@ -544,6 +436,31 @@ const Game: React.FC = () => {
       if (runnerRef.current) {
         Matter.Runner.stop(runnerRef.current);
       }
+    };
+
+    (window as any).loseGame = () => {
+      setGameOver(true);
+      soundManager.playGameOver();
+      soundManager.stopWarning();
+      if (runnerRef.current) {
+        Matter.Runner.stop(runnerRef.current);
+      }
+      console.log("测试命令：游戏失败！");
+    };
+
+    (window as any).spawnMassiveMentors = (count = 20) => {
+      if (!engineRef.current) return;
+      if (gameWinRef.current || gameOverRef.current) return;
+      const { width, height } = dimensions;
+      const fruits = [];
+      for (let i = 0; i < count; i++) {
+        const x = Math.random() * (width - 100) + 50;
+        const y = Math.random() * (height - 200) + 100;
+        const level = Math.floor(Math.random() * 5); // 随机生成前5级的导师
+        fruits.push(createFruit(x, y, level));
+      }
+      Matter.World.add(engineRef.current.world, fruits);
+      console.log(`测试命令：已随机生成 ${count} 个导师！`);
     };
 
     // 运行
@@ -723,116 +640,14 @@ const Game: React.FC = () => {
       </style>
 
       {/* 顶部 UI 区域 */}
-      <div className="top-ui" style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
-        padding: `${15 * dimensions.scale}px`,
-        boxSizing: 'border-box',
-        zIndex: 10,
-        pointerEvents: 'none'
-      }}>
-        {/* 预渲染隐藏图片以确保浏览器缓存 */}
-        <div style={{ display: 'none' }}>
-          {assignedMentors.map((m, i) => (
-            <img key={i} src={m.avatar} alt="preload" />
-          ))}
-        </div>
-        <div className="score-board" style={{
-          position: 'absolute',
-          top: `${20 * dimensions.scale}px`,
-          left: `${20 * dimensions.scale}px`,
-          color: '#333',
-          fontSize: `${36 * dimensions.scale}px`,
-          fontWeight: 'bold',
-          textShadow: '1px 1px 2px white'
-        }}>
-          得分: {score}
-          {/* 常驻显示合成顺序 */}
-          <div className="sequence-display" style={{
-            marginTop: `${15 * dimensions.scale}px`,
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            background: 'rgba(255, 255, 255, 0.75)',
-            padding: `${10 * dimensions.scale}px ${15 * dimensions.scale}px`,
-            borderRadius: `${15 * dimensions.scale}px`,
-            fontSize: `${58 * dimensions.scale}px`,
-            width: `${310 * dimensions.scale}px`,
-            gap: `${8 * dimensions.scale}px`,
-            border: '2px solid rgba(255,255,255,0.5)',
-            boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
-          }}>
-            {assignedMentors.map((m, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: `${3 * dimensions.scale}px` }}>
-                <div style={{
-                  width: `${37 * dimensions.scale}px`,
-                  height: `${37 * dimensions.scale}px`,
-                  borderRadius: '50%',
-                  backgroundColor: fruitConfig[i].color,
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  color: 'white',
-                  fontSize: `${24 * dimensions.scale}px`,
-                  fontWeight: 'bold',
-                  textShadow: '0 1px 2px rgba(0,0,0,0.3)'
-                }}>
-                  {m.name.substring(0, 1)}
-                </div>
-                {i < assignedMentors.length - 1 && <span style={{ opacity: 0.3, fontSize: `${14 * dimensions.scale}px` }}>→</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="next-fruit" style={{
-          position: 'absolute',
-          top: `${20 * dimensions.scale}px`,
-          right: `${20 * dimensions.scale}px`,
-          textAlign: 'center',
-          background: 'rgba(255, 255, 255, 0.75)',
-          padding: `${15 * dimensions.scale}px`,
-          borderRadius: `${20 * dimensions.scale}px`,
-          border: '2px solid rgba(255,255,255,0.5)',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.1)',
-          minWidth: `${80 * dimensions.scale}px`
-        }}>
-          <div style={{ fontSize: `${24 * dimensions.scale}px`, color: '#666', marginBottom: `${8 * dimensions.scale}px`, fontWeight: 'bold' }}>下一个</div>
-          <div style={{ 
-            width: `${80 * dimensions.scale}px`, 
-            height: `${80 * dimensions.scale}px`, 
-            borderRadius: '50%', 
-            backgroundColor: fruitConfig[currentFruitIndex]?.color || '#ccc',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            overflow: 'hidden',
-            margin: '0 auto',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            position: 'relative'
-          }}>
-            {fruitImages.current.has(`mentor_${currentFruitIndex}`) ? (
-              <img 
-                src={assignedMentors[currentFruitIndex].avatar} 
-                alt="next" 
-                style={{ 
-                  width: '90%', 
-                  height: '90%', 
-                  borderRadius: '50%', 
-                  objectFit: 'cover',
-                  display: 'block' 
-                }}
-              />
-            ) : (
-              <span style={{ fontSize: `${32 * dimensions.scale}px`, color: 'white', fontWeight: 'bold' }}>
-                {assignedMentors[currentFruitIndex]?.name.substring(0, 1)}
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
+      <GameUI
+        score={score}
+        dimensions={dimensions}
+        assignedMentors={assignedMentors}
+        fruitConfig={fruitConfig}
+        currentFruitIndex={currentFruitIndex}
+        fruitImages={fruitImages}
+      />
 
       {/* 底部游戏区域 */}
       <div 
@@ -856,310 +671,18 @@ const Game: React.FC = () => {
         <div ref={sceneRef} style={{ width: dimensions.width, height: dimensions.height, position: 'relative' }} />
       </div>
       
-      {showTutorial && (
-        <div className="tutorial-overlay" style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          background: 'rgba(0,0,0,0.7)',
-          color: 'white',
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 200,
-          padding: `${20 * dimensions.scale}px`,
-          boxSizing: 'border-box'
-        }}>
-          <h2 style={{ color: '#ffcc00', marginBottom: `${20 * dimensions.scale}px`, fontSize: `${24 * dimensions.scale}px` }}>终极目标：合成刘铁岩</h2>
-          
-          {existingRecord && (
-            <div style={{
-              background: 'rgba(255, 204, 0, 0.15)',
-              border: '1px solid #ffcc00',
-              borderRadius: `${10 * dimensions.scale}px`,
-              padding: `${15 * dimensions.scale}px`,
-              marginBottom: `${20 * dimensions.scale}px`,
-              textAlign: 'center',
-              width: '100%',
-              boxSizing: 'border-box'
-            }}>
-              <div style={{ color: '#ffcc00', fontWeight: 'bold', fontSize: `${18 * dimensions.scale}px`, marginBottom: '5px' }}>
-                🎉 您已通关！
-              </div>
-              <div style={{ fontSize: `${14 * dimensions.scale}px`, color: '#eee' }}>
-                通关时间：{new Date(new Date(existingRecord.created_at).getTime() + 8 * 60 * 60 * 1000).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')}<br/>
-                当前排名：第 {existingRecord.rank} 名
-              </div>
-              <div style={{ fontSize: `${12 * dimensions.scale}px`, color: '#aaa', marginTop: '8px' }}>
-                * 重复游玩不会刷新最早通关时间记录
-              </div>
-            </div>
-          )}
-
-          <ul style={{ textAlign: 'left', lineHeight: '1.8', fontSize: `${16 * dimensions.scale}px` }}>
-            <li>左右滑动：选择位置</li>
-            <li>抬起手指：让其掉落</li>
-            <li>相同导师碰撞：合成更多导师</li>
-            <li>注意：不要超过红色虚线！</li>
-          </ul>
-          <h3 style={{ fontSize: `${18 * dimensions.scale}px`, marginTop: `${10 * dimensions.scale}px` }}>合成顺序</h3>
-          <div style={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            justifyContent: 'center', 
-            gap: `${10 * dimensions.scale}px`,
-            background: 'rgba(255,255,255,0.1)',
-            padding: `${15 * dimensions.scale}px`,
-            borderRadius: `${10 * dimensions.scale}px`,
-            marginBottom: `${15 * dimensions.scale}px`,
-            maxWidth: '100%'
-          }}>
-            {assignedMentors.map((m, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: `${4 * dimensions.scale}px` }}>
-                <div style={{
-                  width: `${32 * dimensions.scale}px`,
-                  height: `${32 * dimensions.scale}px`,
-                  borderRadius: '50%',
-                  backgroundColor: fruitConfig[i].color,
-                  display: 'flex',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  color: 'white',
-                  fontSize: `${18 * dimensions.scale}px`,
-                  fontWeight: 'bold',
-                  textShadow: '0 1px 2px rgba(0,0,0,0.3)'
-                }}>
-                  {m.name.substring(0, 1)}
-                </div>
-                {i < assignedMentors.length - 1 && <span style={{ opacity: 0.5, fontSize: `${16 * dimensions.scale}px` }}>→</span>}
-              </div>
-            ))}
-          </div>
-
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center', 
-            width: '100%', 
-            marginBottom: `${10 * dimensions.scale}px` 
-          }}>
-            <h3 style={{ fontSize: `${18 * dimensions.scale}px`, margin: 0 }}>导师介绍</h3>
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                shuffleMentors();
-              }}
-              style={{
-                padding: `${5 * dimensions.scale}px ${12 * dimensions.scale}px`,
-                fontSize: `${14 * dimensions.scale}px`,
-                backgroundColor: 'rgba(255, 204, 0, 0.2)',
-                border: '1px solid #ffcc00',
-                borderRadius: `${15 * dimensions.scale}px`,
-                color: '#ffcc00',
-                cursor: 'pointer',
-                fontWeight: 'bold',
-                transition: 'all 0.2s'
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255, 204, 0, 0.3)')}
-              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255, 204, 0, 0.2)')}
-            >
-              🔄 换一换
-            </button>
-          </div>
-          <div style={{
-            width: '100%',
-            maxHeight: `${300 * dimensions.scale}px`,
-            overflowY: 'auto',
-            background: 'rgba(255,255,255,0.1)',
-            borderRadius: `${10 * dimensions.scale}px`,
-            padding: `${10 * dimensions.scale}px`,
-            marginBottom: `${20 * dimensions.scale}px`,
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: `${8 * dimensions.scale}px`
-          }}>
-            {assignedMentors.map((m, i) => (
-              <div key={i} style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: `${6 * dimensions.scale}px ${10 * dimensions.scale}px`,
-                background: 'rgba(255,255,255,0.05)',
-                borderRadius: `${8 * dimensions.scale}px`
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: `${8 * dimensions.scale}px`, overflow: 'hidden' }}>
-                  <img 
-                    src={m.avatar} 
-                    alt={m.name} 
-                    style={{ 
-                      width: `${32 * dimensions.scale}px`, 
-                      height: `${32 * dimensions.scale}px`, 
-                      borderRadius: '50%', 
-                      objectFit: 'cover',
-                      flexShrink: 0,
-                      border: `2px solid ${fruitConfig[i].color}`
-                    }} 
-                  />
-                  <span style={{ 
-                    fontSize: `${14 * dimensions.scale}px`, 
-                    fontWeight: 'bold',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>{m.name}</span>
-                </div>
-                {m.homepage && (
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      window.open(m.homepage, '_blank');
-                    }}
-                    style={{
-                      padding: `${3 * dimensions.scale}px ${8 * dimensions.scale}px`,
-                      fontSize: `${10 * dimensions.scale}px`,
-                      backgroundColor: 'rgba(255,255,255,0.2)',
-                      border: '1px solid rgba(255,255,255,0.3)',
-                      borderRadius: `${12 * dimensions.scale}px`,
-                      color: 'white',
-                      cursor: 'pointer',
-                      flexShrink: 0
-                    }}
-                  >
-                    主页
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-          <button 
-            onClick={() => {
-              setShowTutorial(false);
-              soundManager.resume();
-            }}
-            style={{
-              padding: `${12 * dimensions.scale}px ${40 * dimensions.scale}px`,
-              fontSize: `${18 * dimensions.scale}px`,
-              backgroundColor: '#ffcc00',
-              border: 'none',
-              borderRadius: `${25 * dimensions.scale}px`,
-              color: '#333',
-              fontWeight: 'bold',
-              cursor: 'pointer'
-            }}
-          >
-            开始游戏
-          </button>
-        </div>
-      )}
-
-      {gameWin && (
-        <div className="game-over game-win" style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: `translate(-50%, -50%) scale(${dimensions.scale})`,
-          background: 'rgba(255, 215, 0, 0.95)',
-          color: '#333',
-          padding: '30px',
-          borderRadius: '20px',
-          textAlign: 'center',
-          zIndex: 100,
-          boxShadow: '0 0 40px rgba(0,0,0,0.6)',
-          border: '5px solid white',
-          width: '80%',
-          maxWidth: '300px',
-          animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-        }}>
-          <h2 style={{ fontSize: '36px', margin: '0 0 10px 0', color: '#8b4513', fontWeight: '900' }}>挑战成功！</h2>
-          <div style={{ fontSize: '80px', margin: '10px 0' }}>🏆</div>
-          <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>你成功合成了刘铁岩！</p>
-          <div style={{ 
-            fontSize: '24px', 
-            margin: '20px 0', 
-            padding: '10px', 
-            background: 'rgba(255,255,255,0.3)',
-            borderRadius: '10px'
-          }}>
-            最终得分: <span style={{ color: '#d2691e', fontWeight: '900' }}>{score}</span>
-          </div>
-          <button 
-            onClick={() => {
-              soundManager.resume();
-              window.location.reload();
-            }}
-            style={{
-              marginTop: '10px',
-              padding: '12px 40px',
-              fontSize: '20px',
-              backgroundColor: '#8b4513',
-              color: 'white',
-              border: 'none',
-              borderRadius: '30px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              boxShadow: '0 6px 0 #5d2e0d'
-            }}
-          >
-            再来一局
-          </button>
-        </div>
-      )}
-
-      {gameOver && (
-        <div className="game-over game-fail" style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: `translate(-50%, -50%) scale(${dimensions.scale})`,
-          background: 'rgba(220, 53, 69, 0.95)',
-          color: 'white',
-          padding: '30px',
-          borderRadius: '20px',
-          textAlign: 'center',
-          zIndex: 100,
-          boxShadow: '0 0 40px rgba(0,0,0,0.6)',
-          border: '5px solid white',
-          width: '80%',
-          maxWidth: '300px',
-          animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-        }}>
-          <h2 style={{ fontSize: '36px', margin: '0 0 10px 0', fontWeight: '900' }}>挑战失败</h2>
-          <div style={{ fontSize: '80px', margin: '10px 0' }}>❌</div>
-          <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>导师堆积过高啦！</p>
-          <div style={{ 
-            fontSize: '24px', 
-            margin: '20px 0', 
-            padding: '10px', 
-            background: 'rgba(255,255,255,0.2)',
-            borderRadius: '10px'
-          }}>
-            最终得分: <span style={{ fontWeight: '900' }}>{score}</span>
-          </div>
-          <button 
-            onClick={() => {
-              soundManager.resume();
-              window.location.reload();
-            }}
-            style={{
-              marginTop: '10px',
-              padding: '12px 40px',
-              fontSize: '20px',
-              backgroundColor: 'white',
-              color: '#dc3545',
-              border: 'none',
-              borderRadius: '30px',
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              boxShadow: '0 6px 0 #a71d2a'
-            }}
-          >
-            重整旗鼓
-          </button>
-        </div>
-      )}
+      <Overlays
+        showTutorial={showTutorial}
+        setShowTutorial={setShowTutorial}
+        gameWin={gameWin}
+        gameOver={gameOver}
+        score={score}
+        existingRecord={existingRecord}
+        dimensions={dimensions}
+        assignedMentors={assignedMentors}
+        fruitConfig={fruitConfig}
+        shuffleMentors={shuffleMentors}
+      />
     </div>
   );
 };

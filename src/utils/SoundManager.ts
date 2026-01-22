@@ -8,6 +8,7 @@ class SoundManager {
   private enabled: boolean = true;
   private warningInterval: any = null;
   private isGameActive: boolean = true;
+  private isFinalSoundPlayed: boolean = false;
 
   constructor() {
     // 延迟初始化
@@ -31,6 +32,7 @@ class SoundManager {
       this.ctx.resume();
     }
     this.isGameActive = true;
+    this.isFinalSoundPlayed = false;
   }
 
   /**
@@ -165,6 +167,9 @@ class SoundManager {
    * 播放游戏结束音效 (短时下降音)
    */
   public playGameOver() {
+    if (this.isFinalSoundPlayed) return;
+    this.isFinalSoundPlayed = true;
+
     // 立即停止警告并标记游戏结束，阻止新声音
     this.stopAll();
     
@@ -193,6 +198,9 @@ class SoundManager {
    * 播放胜利音效
    */
   public playWin() {
+    if (this.isFinalSoundPlayed) return;
+    this.isFinalSoundPlayed = true;
+
     this.stopAll();
     if (!this.enabled) return;
     this.init();
