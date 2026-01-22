@@ -9,6 +9,7 @@ interface OverlaysProps {
   gameOver: boolean;
   score: number;
   existingRecord: { rank: number; created_at: string } | null;
+  userId: string | null;
   dimensions: { scale: number; width: number; height: number };
   assignedMentors: Mentor[];
   fruitConfig: any[];
@@ -22,6 +23,7 @@ export const Overlays: React.FC<OverlaysProps> = ({
   gameOver,
   score,
   existingRecord,
+  userId,
   dimensions,
   assignedMentors,
   fruitConfig,
@@ -48,7 +50,7 @@ export const Overlays: React.FC<OverlaysProps> = ({
         }}>
           <h2 style={{ color: '#ffcc00', marginBottom: `${20 * dimensions.scale}px`, fontSize: `${24 * dimensions.scale}px` }}>终极目标：合成刘铁岩</h2>
           
-          {existingRecord && (
+          {existingRecord ? (
             <div style={{
               background: 'rgba(255, 204, 0, 0.15)',
               border: '1px solid #ffcc00',
@@ -70,7 +72,26 @@ export const Overlays: React.FC<OverlaysProps> = ({
                 * 重复游玩不会刷新最早通关时间记录
               </div>
             </div>
-          )}
+          ) : userId ? (
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.1)',
+              border: '1px solid rgba(255, 255, 255, 0.3)',
+              borderRadius: `${10 * dimensions.scale}px`,
+              padding: `${15 * dimensions.scale}px`,
+              marginBottom: `${20 * dimensions.scale}px`,
+              textAlign: 'center',
+              width: '100%',
+              boxSizing: 'border-box'
+            }}>
+              <div style={{ color: '#fff', fontWeight: 'bold', fontSize: `${18 * dimensions.scale}px`, marginBottom: '5px' }}>
+                已登录 (ID: {userId.length > 8 ? userId.substring(0, 8) + '...' : userId})
+              </div>
+              <div style={{ fontSize: `${14 * dimensions.scale}px`, color: '#eee' }}>
+                您还没有通关记录<br/>
+                通关后将自动录入排行榜
+              </div>
+            </div>
+          ) : null}
 
           <ul style={{ textAlign: 'left', lineHeight: '1.8', fontSize: `${16 * dimensions.scale}px` }}>
             <li>左右滑动：选择位置</li>

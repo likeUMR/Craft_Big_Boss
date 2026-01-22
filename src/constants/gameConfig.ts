@@ -39,7 +39,7 @@ export const FRUIT_CONFIG_BASE = Array.from({ length: TOTAL_LEVELS }, (_, i) => 
 }));
 
 // 半径映射
-export const RADIUS_MAPPING = [15, 23, 32, 42, 53, 65, 79, 94, 110, 130, 155, 185, 230];
+export const RADIUS_MAPPING = [15, 24, 34, 45, 56, 69, 84, 99, 115, 135, 157, 185, 230];
 
 // 应用半径映射到基础配置
 FRUIT_CONFIG_BASE.forEach((config, i) => {

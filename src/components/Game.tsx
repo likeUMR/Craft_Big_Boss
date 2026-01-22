@@ -678,6 +678,7 @@ const Game: React.FC = () => {
         gameOver={gameOver}
         score={score}
         existingRecord={existingRecord}
+        userId={userId}
         dimensions={dimensions}
         assignedMentors={assignedMentors}
         fruitConfig={fruitConfig}
