@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { soundManager } from '../../utils/SoundManager';
 import { Mentor } from '../../types';
 
@@ -29,6 +29,9 @@ export const Overlays: React.FC<OverlaysProps> = ({
   fruitConfig,
   shuffleMentors
 }) => {
+  const [isWinClosed, setIsWinClosed] = useState(false);
+  const [isFailClosed, setIsFailClosed] = useState(false);
+
   return (
     <>
       {showTutorial && (
@@ -249,7 +252,7 @@ export const Overlays: React.FC<OverlaysProps> = ({
         </div>
       )}
 
-      {gameWin && (
+      {gameWin && !isWinClosed && (
         <div className="game-over game-win" style={{
           position: 'absolute',
           top: '50%',
@@ -267,6 +270,31 @@ export const Overlays: React.FC<OverlaysProps> = ({
           maxWidth: '300px',
           animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}>
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsWinClosed(true);
+            }}
+            style={{
+              position: 'absolute',
+              top: '10px',
+              right: '10px',
+              width: '30px',
+              height: '30px',
+              borderRadius: '50%',
+              background: 'rgba(0,0,0,0.1)',
+              border: 'none',
+              color: '#8b4513',
+              fontSize: '20px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 'bold'
+            }}
+          >
+            ×
+          </button>
           <h2 style={{ fontSize: '36px', margin: '0 0 10px 0', color: '#8b4513', fontWeight: '900' }}>挑战成功！</h2>
           <div style={{ fontSize: '80px', margin: '10px 0' }}>🏆</div>
           <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>你成功合成了刘铁岩！</p>
@@ -302,7 +330,7 @@ export const Overlays: React.FC<OverlaysProps> = ({
         </div>
       )}
 
-      {gameOver && (
+      {gameOver && !isFailClosed && (
         <div className="game-over game-fail" style={{
           position: 'absolute',
           top: '50%',
@@ -320,6 +348,31 @@ export const Overlays: React.FC<OverlaysProps> = ({
           maxWidth: '300px',
           animation: 'popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}>
+          <button 
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsFailClosed(true);
+            }}
+            style={{
+              position: 'absolute',
+              top: '10px',
+              right: '10px',
+              width: '30px',
+              height: '30px',
+              borderRadius: '50%',
+              background: 'rgba(255,255,255,0.2)',
+              border: 'none',
+              color: 'white',
+              fontSize: '20px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontWeight: 'bold'
+            }}
+          >
+            ×
+          </button>
           <h2 style={{ fontSize: '36px', margin: '0 0 10px 0', fontWeight: '900' }}>挑战失败</h2>
           <div style={{ fontSize: '80px', margin: '10px 0' }}>❌</div>
           <p style={{ fontSize: '20px', fontWeight: 'bold', margin: '10px 0' }}>导师堆积过高啦！</p>
