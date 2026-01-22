@@ -5,7 +5,6 @@ import { Mentor } from '../types';
 import { 
   BASE_WIDTH, 
   BASE_HEIGHT, 
-  TOTAL_LEVELS, 
   FRUIT_CONFIG_BASE 
 } from '../constants/gameConfig';
 import { getRandomMentors } from '../utils/gameHelpers';
