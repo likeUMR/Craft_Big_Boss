@@ -8,7 +8,7 @@ interface OverlaysProps {
   gameWin: boolean;
   gameOver: boolean;
   score: number;
-  existingRecord: { rank: number; created_at: string } | null;
+  existingRecord: { rank: number | null; cleared_at: string } | null;
   userId: string | null;
   dimensions: { scale: number; width: number; height: number };
   assignedMentors: Mentor[];
@@ -31,6 +31,7 @@ export const Overlays: React.FC<OverlaysProps> = ({
 }) => {
   const [isWinClosed, setIsWinClosed] = useState(false);
   const [isFailClosed, setIsFailClosed] = useState(false);
+  const formatClearTime = (clearTime: string) => clearTime.replace(' ', '\u00A0');
 
   return (
     <>
@@ -68,8 +69,8 @@ export const Overlays: React.FC<OverlaysProps> = ({
                 🎉 您已通关！
               </div>
               <div style={{ fontSize: `${14 * dimensions.scale}px`, color: '#eee' }}>
-                通关时间：{new Date(new Date(existingRecord.created_at).getTime() + 8 * 60 * 60 * 1000).toLocaleString('zh-CN', { hour12: false }).replace(/\//g, '-')}<br/>
-                当前排名：第 {existingRecord.rank} 名
+                通关时间：{formatClearTime(existingRecord.cleared_at)}<br/>
+                当前排名：{existingRecord.rank ? `第 ${existingRecord.rank} 名` : '待生成'}
               </div>
               <div style={{ fontSize: `${12 * dimensions.scale}px`, color: '#aaa', marginTop: '8px' }}>
                 * 重复游玩不会刷新最早通关时间记录

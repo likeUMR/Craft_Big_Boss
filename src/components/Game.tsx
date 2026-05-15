@@ -34,7 +34,7 @@ const Game: React.FC = () => {
   const [showTutorial, setShowTutorial] = useState(true);
   const [userId] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get('userid');
+    return params.get('user_id');
   });
   const { existingRecord, reportWin } = useLeaderboard(userId);
   const maxFruitLevelRef = useRef(0);
